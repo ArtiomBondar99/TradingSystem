@@ -1,5 +1,11 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_PIPE } from '@nestjs/core';
 import configuration from './config/configuration.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { HealthModule } from './health/health.module.js';
@@ -26,6 +32,16 @@ import { DatabaseModule } from './database/database.module.js';
     PortfolioModule,
     TransactionsModule,
     MarketDataModule,
+  ],
+  providers: [
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    },
   ],
 })
 export class AppModule implements NestModule {
