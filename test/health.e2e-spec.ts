@@ -22,6 +22,7 @@ describe('Health (e2e)', () => {
       .expect(200);
 
     expect(response.body.status).toBe('ok');
+    expect(response.body.database).toBe('up');
   });
 
   it('adds an X-Request-Id header to every response', async () => {

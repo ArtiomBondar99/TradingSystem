@@ -1,4 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import configuration from './config/configuration.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -13,6 +15,8 @@ import { DatabaseModule } from './database/database.module.js';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+    DatabaseModule,
     HealthModule,
     AuthModule,
     UsersModule,
@@ -22,7 +26,6 @@ import { DatabaseModule } from './database/database.module.js';
     PortfolioModule,
     TransactionsModule,
     MarketDataModule,
-    DatabaseModule,
   ],
 })
 export class AppModule implements NestModule {
