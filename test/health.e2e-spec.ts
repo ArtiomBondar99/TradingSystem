@@ -24,6 +24,12 @@ describe('Health (e2e)', () => {
     expect(response.body.status).toBe('ok');
   });
 
+  it('adds an X-Request-Id header to every response', async () => {
+    const response = await request(app.getHttpServer()).get('/health');
+
+    expect(response.headers['x-request-id']).toBeDefined();
+  });
+
   afterEach(async () => {
     await app.close();
   });
