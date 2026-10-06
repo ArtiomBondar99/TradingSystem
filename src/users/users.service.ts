@@ -5,7 +5,7 @@ import { UserResponseDto } from './dto/user-response.dto.js';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly usersRepository: UsersRepository) { }
+  constructor(private readonly usersRepository: UsersRepository) {}
 
   create(email: string, passwordHash: string): Promise<User> {
     return this.usersRepository.create({ email, passwordHash });

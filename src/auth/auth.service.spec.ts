@@ -1,4 +1,6 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EmailAlreadyExistsError } from '../users/errors/email-already-exists.error.js';
 import { UsersService } from '../users/users.service.js';
@@ -7,20 +9,32 @@ import { PasswordHasher } from './password-hasher.service.js';
 
 describe('AuthService', () => {
   let service: AuthService;
-  const usersService = { create: vi.fn() };
-  const passwordHasher = { hash: vi.fn() };
+  const usersService = { create: vi.fn(), findByEmail: vi.fn() };
+  const passwordHasher = { hash: vi.fn(), verify: vi.fn() };
+  const jwtService = { signAsync: vi.fn() };
+  const config = { getOrThrow: vi.fn() };
 
-  const dto = { email: 'trader@example.com', password: 'StrongPass1' };
+  const storedUser = {
+    id: 'user-1',
+    email: 'trader@example.com',
+    passwordHash: 'hashed-password',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
   beforeEach(async () => {
     vi.clearAllMocks();
     passwordHasher.hash.mockResolvedValue('hashed-password');
+    jwtService.signAsync.mockResolvedValue('signed.jwt.token');
+    config.getOrThrow.mockReturnValue('15m');
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: UsersService, useValue: usersService },
         { provide: PasswordHasher, useValue: passwordHasher },
+        { provide: JwtService, useValue: jwtService },
+        { provide: ConfigService, useValue: config },
       ],
     }).compile();
 
@@ -28,14 +42,10 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
+    const dto = { email: 'trader@example.com', password: 'StrongPass1' };
+
     it('stores the hashed password, never the plain one', async () => {
-      usersService.create.mockResolvedValue({
-        id: 'user-1',
-        email: dto.email,
-        passwordHash: 'hashed-password',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      usersService.create.mockResolvedValue(storedUser);
 
       await service.register(dto);
 
@@ -47,13 +57,7 @@ describe('AuthService', () => {
     });
 
     it('does not return the password hash', async () => {
-      usersService.create.mockResolvedValue({
-        id: 'user-1',
-        email: dto.email,
-        passwordHash: 'hashed-password',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      usersService.create.mockResolvedValue(storedUser);
 
       const result = await service.register(dto);
 
@@ -69,6 +73,48 @@ describe('AuthService', () => {
       await expect(service.register(dto)).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+  });
+
+  describe('login', () => {
+    const dto = { email: 'trader@example.com', password: 'StrongPass1' };
+
+    it('returns a signed access token for valid credentials', async () => {
+      usersService.findByEmail.mockResolvedValue(storedUser);
+      passwordHasher.verify.mockResolvedValue(true);
+
+      const result = await service.login(dto);
+
+      expect(jwtService.signAsync).toHaveBeenCalledWith({
+        sub: 'user-1',
+        email: 'trader@example.com',
+      });
+      expect(result).toEqual({
+        accessToken: 'signed.jwt.token',
+        tokenType: 'Bearer',
+        expiresIn: '15m',
+      });
+    });
+
+    it('throws 401 for a wrong password', async () => {
+      usersService.findByEmail.mockResolvedValue(storedUser);
+      passwordHasher.verify.mockResolvedValue(false);
+
+      await expect(service.login(dto)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws the same 401 for an unknown email, after still verifying a hash', async () => {
+      usersService.findByEmail.mockResolvedValue(null);
+      passwordHasher.verify.mockResolvedValue(false);
+
+      await expect(service.login(dto)).rejects.toThrow(
+        'Invalid email or password',
+      );
+      // Timing protection: a hash is verified even when the user doesn't exist
+      expect(passwordHasher.verify).toHaveBeenCalledTimes(1);
     });
   });
 });

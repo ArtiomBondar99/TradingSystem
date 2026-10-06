@@ -50,4 +50,58 @@ describe('Auth (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('login and protected routes', () => {
+    const email = `e2e-${randomUUID()}@example.com`;
+    const password = 'StrongPass1';
+    let accessToken: string;
+
+    beforeAll(async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email, password })
+        .expect(201);
+    });
+
+    it('POST /auth/login returns 200 with a bearer token', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password })
+        .expect(200);
+
+      expect(response.body.tokenType).toBe('Bearer');
+      expect(typeof response.body.accessToken).toBe('string');
+      accessToken = response.body.accessToken;
+    });
+
+    it('POST /auth/login returns 401 for a wrong password', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password: 'WrongPass1' })
+        .expect(401);
+
+      expect(response.body.message).toBe('Invalid email or password');
+    });
+
+    it('GET /users/me returns the profile for a valid token', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(response.body.email).toBe(email);
+      expect(response.body).not.toHaveProperty('passwordHash');
+    });
+
+    it('GET /users/me returns 401 without a token', async () => {
+      await request(app.getHttpServer()).get('/users/me').expect(401);
+    });
+
+    it('GET /users/me returns 401 for a tampered token', async () => {
+      await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${accessToken}tampered`)
+        .expect(401);
+    });
+  });
 });
