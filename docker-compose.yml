@@ -18,5 +18,18 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build: .
+    container_name: paper-trading-api
+    environment:
+      PORT: 3000
+      # Inside Docker, the database host is the service name "postgres", not localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    ports:
+      - "${PORT}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
