@@ -7,7 +7,7 @@ const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
 @Injectable()
 export class UsersRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(data: { email: string; passwordHash: string }): Promise<User> {
     try {
@@ -23,7 +23,15 @@ export class UsersRepository {
     }
   }
 
-  findByEmail(email: string): Promise<User | null> {
+  async findById(id: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { email } });
   }
 }
+
+
+
+
