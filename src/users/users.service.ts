@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { User } from '../generated/prisma/client.js';
+import { INITIAL_WALLET_BALANCE } from '../wallets/wallets.constants.js';
 import { UsersRepository } from './users.repository.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
 
@@ -8,7 +9,11 @@ export class UsersService {
   constructor(private readonly usersRepository: UsersRepository) {}
 
   create(email: string, passwordHash: string): Promise<User> {
-    return this.usersRepository.create({ email, passwordHash });
+    return this.usersRepository.createWithWallet({
+      email,
+      passwordHash,
+      initialBalance: INITIAL_WALLET_BALANCE,
+    });
   }
 
   findByEmail(email: string): Promise<User | null> {

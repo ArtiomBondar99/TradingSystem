@@ -93,6 +93,20 @@ describe('Auth (e2e)', () => {
       expect(response.body).not.toHaveProperty('passwordHash');
     });
 
+    it('GET /wallets/me shows the $100,000 starting balance', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/wallets/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(response.body.balance).toBe('100000.00');
+      expect(response.body.currency).toBe('USD');
+    });
+
+    it('GET /wallets/me returns 401 without a token', async () => {
+      await request(app.getHttpServer()).get('/wallets/me').expect(401);
+    });
+
     it('GET /users/me returns 401 without a token', async () => {
       await request(app.getHttpServer()).get('/users/me').expect(401);
     });

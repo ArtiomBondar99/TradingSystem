@@ -9,9 +9,21 @@ const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 export class UsersRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: { email: string; passwordHash: string }): Promise<User> {
+  // Creates the user and their wallet in one atomic write:
+  // either both rows exist afterwards, or neither does.
+  async createWithWallet(data: {
+    email: string;
+    passwordHash: string;
+    initialBalance: string;
+  }): Promise<User> {
     try {
-      return await this.prisma.user.create({ data });
+      return await this.prisma.user.create({
+        data: {
+          email: data.email,
+          passwordHash: data.passwordHash,
+          wallet: { create: { balance: data.initialBalance } },
+        },
+      });
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&

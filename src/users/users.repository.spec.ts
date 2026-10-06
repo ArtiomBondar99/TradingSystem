@@ -8,6 +8,12 @@ describe('UsersRepository', () => {
   let repository: UsersRepository;
   const prisma = { user: { create: vi.fn(), findUnique: vi.fn() } };
 
+  const input = {
+    email: 'trader@example.com',
+    passwordHash: 'x',
+    initialBalance: '100000.00',
+  };
+
   beforeEach(async () => {
     vi.clearAllMocks();
 
@@ -21,6 +27,21 @@ describe('UsersRepository', () => {
     repository = module.get(UsersRepository);
   });
 
+  it('creates the user and the wallet in a single nested write', async () => {
+    prisma.user.create.mockResolvedValue({ id: 'user-1' });
+
+    await repository.createWithWallet(input);
+
+    expect(prisma.user.create).toHaveBeenCalledTimes(1);
+    expect(prisma.user.create).toHaveBeenCalledWith({
+      data: {
+        email: 'trader@example.com',
+        passwordHash: 'x',
+        wallet: { create: { balance: '100000.00' } },
+      },
+    });
+  });
+
   it('translates a unique constraint violation into EmailAlreadyExistsError', async () => {
     prisma.user.create.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -29,17 +50,15 @@ describe('UsersRepository', () => {
       }),
     );
 
-    await expect(
-      repository.create({ email: 'taken@example.com', passwordHash: 'x' }),
-    ).rejects.toBeInstanceOf(EmailAlreadyExistsError);
+    await expect(repository.createWithWallet(input)).rejects.toBeInstanceOf(
+      EmailAlreadyExistsError,
+    );
   });
 
   it('rethrows any other database error unchanged', async () => {
     const dbDown = new Error('connection refused');
     prisma.user.create.mockRejectedValue(dbDown);
 
-    await expect(
-      repository.create({ email: 'a@example.com', passwordHash: 'x' }),
-    ).rejects.toBe(dbDown);
+    await expect(repository.createWithWallet(input)).rejects.toBe(dbDown);
   });
 });
