@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../database/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
@@ -6,7 +7,13 @@ import { UsersRepository } from './users.repository.js';
 
 describe('UsersRepository', () => {
   let repository: UsersRepository;
-  const prisma = { user: { create: vi.fn(), findUnique: vi.fn() } };
+  // Prisma's generated method types are huge generics; a loose signature is enough here
+  const prisma = {
+    user: {
+      create: jest.fn<(args: unknown) => Promise<unknown>>(),
+      findUnique: jest.fn<(args: unknown) => Promise<unknown>>(),
+    },
+  };
 
   const input = {
     email: 'trader@example.com',
@@ -15,7 +22,7 @@ describe('UsersRepository', () => {
   };
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

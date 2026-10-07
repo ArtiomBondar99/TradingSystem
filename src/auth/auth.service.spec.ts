@@ -1,7 +1,9 @@
+import { jest } from '@jest/globals';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
+import type { User } from '../generated/prisma/client.js';
 import { EmailAlreadyExistsError } from '../users/errors/email-already-exists.error.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthService } from './auth.service.js';
@@ -9,12 +11,20 @@ import { PasswordHasher } from './password-hasher.service.js';
 
 describe('AuthService', () => {
   let service: AuthService;
-  const usersService = { create: vi.fn(), findByEmail: vi.fn() };
-  const passwordHasher = { hash: vi.fn(), verify: vi.fn() };
-  const jwtService = { signAsync: vi.fn() };
-  const config = { getOrThrow: vi.fn() };
+  const usersService = {
+    create: jest.fn<UsersService['create']>(),
+    findByEmail: jest.fn<UsersService['findByEmail']>(),
+  };
+  const passwordHasher = {
+    hash: jest.fn<PasswordHasher['hash']>(),
+    verify: jest.fn<PasswordHasher['verify']>(),
+  };
+  const jwtService = {
+    signAsync: jest.fn<(payload: object) => Promise<string>>(),
+  };
+  const config = { getOrThrow: jest.fn<(key: string) => string>() };
 
-  const storedUser = {
+  const storedUser: User = {
     id: 'user-1',
     email: 'trader@example.com',
     passwordHash: 'hashed-password',
@@ -23,7 +33,7 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
     passwordHasher.hash.mockResolvedValue('hashed-password');
     jwtService.signAsync.mockResolvedValue('signed.jwt.token');
     config.getOrThrow.mockReturnValue('15m');

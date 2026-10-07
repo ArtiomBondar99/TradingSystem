@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import type { NextFunction, Request, Response } from 'express';
 import {
   REQUEST_ID_HEADER,
@@ -9,9 +10,9 @@ describe('RequestIdMiddleware', () => {
 
   function run(headers: Record<string, string> = {}) {
     const req = { headers } as unknown as Request;
-    const setHeader = vi.fn();
+    const setHeader = jest.fn();
     const res = { setHeader } as unknown as Response;
-    const next = vi.fn() as NextFunction;
+    const next = jest.fn() as unknown as NextFunction;
 
     middleware.use(req, res, next);
 

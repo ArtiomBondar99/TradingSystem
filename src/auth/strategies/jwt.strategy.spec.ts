@@ -1,9 +1,10 @@
+import { jest } from '@jest/globals';
 import { ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy.js';
 
 describe('JwtStrategy', () => {
   const config = {
-    getOrThrow: vi.fn().mockReturnValue('test-secret'),
+    getOrThrow: jest.fn<() => string>().mockReturnValue('test-secret'),
   } as unknown as ConfigService;
 
   const strategy = new JwtStrategy(config);

@@ -1,10 +1,11 @@
+import { jest } from '@jest/globals';
 import { Test, TestingModule } from '@nestjs/testing';
 import { HealthController } from './health.controller.js';
 import { HealthService } from './health.service.js';
 
 describe('HealthController', () => {
   let controller: HealthController;
-  const healthService = { check: vi.fn() };
+  const healthService = { check: jest.fn<HealthService['check']>() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

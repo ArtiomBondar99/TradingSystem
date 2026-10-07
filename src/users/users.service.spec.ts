@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersRepository } from './users.repository.js';
@@ -5,10 +6,10 @@ import { UsersService } from './users.service.js';
 
 describe('UsersService', () => {
   let service: UsersService;
-  const usersRepository = { findById: vi.fn() };
+  const usersRepository = { findById: jest.fn<UsersRepository['findById']>() };
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

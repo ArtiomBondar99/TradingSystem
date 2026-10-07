@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '../generated/prisma/client.js';
@@ -6,10 +7,12 @@ import { WalletsService } from './wallets.service.js';
 
 describe('WalletsService', () => {
   let service: WalletsService;
-  const walletsRepository = { findByUserId: vi.fn() };
+  const walletsRepository = {
+    findByUserId: jest.fn<WalletsRepository['findByUserId']>(),
+  };
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
