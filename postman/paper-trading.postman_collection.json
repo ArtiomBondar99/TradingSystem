@@ -80,6 +80,27 @@
       ]
     },
     {
+      "name": "Stocks",
+      "item": [
+        {
+          "name": "List stocks",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/stocks"
+          }
+        },
+        {
+          "name": "Get stock by symbol",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/stocks/AAPL"
+          }
+        }
+      ]
+    },
+    {
       "name": "Wallet",
       "item": [
         {

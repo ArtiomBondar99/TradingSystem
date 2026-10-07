@@ -13,6 +13,7 @@ npm install
 cp .env.example .env        # then fill in the values
 npm run dev                 # starts PostgreSQL in Docker + the API in watch mode
 npx prisma migrate deploy   # first run only: create the tables
+npx prisma db seed          # first run only: add the starting stocks (safe to re-run)
 ```
 
 The API runs on `http://localhost:3000`. It restarts automatically when you save a file.
@@ -47,3 +48,5 @@ Import [`postman/paper-trading.postman_collection.json`](postman/paper-trading.p
 | POST | `/auth/login` | – | Get a JWT access token |
 | GET | `/users/me` | Bearer | Current user's profile |
 | GET | `/wallet` | Bearer | Current user's cash balance |
+| GET | `/stocks` | – | All tradable stocks with current prices |
+| GET | `/stocks/:symbol` | – | One stock, e.g. `/stocks/AAPL` (404 if unknown) |

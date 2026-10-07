@@ -36,3 +36,14 @@ model Wallet {
 
   @@map("wallets")
 }
+
+model Stock {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  symbol       String   @unique @db.VarChar(10)
+  name         String
+  currentPrice Decimal  @map("current_price") @db.Decimal(18, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("stocks")
+}
