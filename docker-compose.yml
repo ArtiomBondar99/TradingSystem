@@ -18,7 +18,10 @@ services:
       timeout: 5s
       retries: 5
 
+  # Not started by a plain "docker compose up": during development the API runs
+  # locally with "npm run dev". To run it in Docker: docker compose --profile app up -d --build
   api:
+    profiles: ['app']
     build: .
     container_name: paper-trading-api
     environment:
