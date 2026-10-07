@@ -17,6 +17,8 @@ describe('UsersRepository', () => {
 
   const input = {
     email: 'trader@example.com',
+    firstName: 'Ada',
+    lastName: 'Lovelace',
     passwordHash: 'x',
     initialBalance: '100000.00',
   };
@@ -43,6 +45,8 @@ describe('UsersRepository', () => {
     expect(prisma.user.create).toHaveBeenCalledWith({
       data: {
         email: 'trader@example.com',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
         passwordHash: 'x',
         wallet: { create: { balance: '100000.00' } },
       },

@@ -1,5 +1,14 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
 export class RegisterDto {
   @Transform(({ value }) =>
@@ -8,6 +17,19 @@ export class RegisterDto {
   @IsEmail()
   @MaxLength(254)
   email: string;
+
+  // Trimmed first, so "   " becomes "" and is rejected by IsNotEmpty
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  firstName: string;
+
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  lastName: string;
 
   @IsString()
   @MinLength(8)

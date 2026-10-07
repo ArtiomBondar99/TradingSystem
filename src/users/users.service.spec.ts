@@ -26,6 +26,8 @@ describe('UsersService', () => {
       usersRepository.findById.mockResolvedValue({
         id: 'user-1',
         email: 'trader@example.com',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
         passwordHash: 'secret-hash',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -34,6 +36,8 @@ describe('UsersService', () => {
       const profile = await service.getProfile('user-1');
 
       expect(profile.email).toBe('trader@example.com');
+      expect(profile.firstName).toBe('Ada');
+      expect(profile.lastName).toBe('Lovelace');
       expect(profile).not.toHaveProperty('passwordHash');
     });
 

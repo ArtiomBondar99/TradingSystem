@@ -27,6 +27,8 @@ describe('AuthService', () => {
   const storedUser: User = {
     id: 'user-1',
     email: 'trader@example.com',
+    firstName: 'Ada',
+    lastName: 'Lovelace',
     passwordHash: 'hashed-password',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -52,18 +54,34 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
-    const dto = { email: 'trader@example.com', password: 'StrongPass1' };
+    const dto = {
+      email: 'trader@example.com',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      password: 'StrongPass1',
+    };
 
-    it('stores the hashed password, never the plain one', async () => {
+    it('stores the names and the hashed password, never the plain one', async () => {
       usersService.create.mockResolvedValue(storedUser);
 
       await service.register(dto);
 
       expect(passwordHasher.hash).toHaveBeenCalledWith('StrongPass1');
-      expect(usersService.create).toHaveBeenCalledWith(
-        'trader@example.com',
-        'hashed-password',
-      );
+      expect(usersService.create).toHaveBeenCalledWith({
+        email: 'trader@example.com',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        passwordHash: 'hashed-password',
+      });
+    });
+
+    it('returns the names in the response', async () => {
+      usersService.create.mockResolvedValue(storedUser);
+
+      const result = await service.register(dto);
+
+      expect(result.firstName).toBe('Ada');
+      expect(result.lastName).toBe('Lovelace');
     });
 
     it('does not return the password hash', async () => {

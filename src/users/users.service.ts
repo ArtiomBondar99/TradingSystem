@@ -3,15 +3,15 @@ import type { User } from '../generated/prisma/client.js';
 import { INITIAL_WALLET_BALANCE } from '../wallets/wallets.constants.js';
 import { UsersRepository } from './users.repository.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
+import type { CreateUserInput } from './types/create-user.input.js';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly usersRepository: UsersRepository) {}
 
-  create(email: string, passwordHash: string): Promise<User> {
+  create(input: CreateUserInput): Promise<User> {
     return this.usersRepository.createWithWallet({
-      email,
-      passwordHash,
+      ...input,
       initialBalance: INITIAL_WALLET_BALANCE,
     });
   }

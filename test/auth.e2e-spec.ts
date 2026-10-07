@@ -25,13 +25,22 @@ describe('Auth (e2e)', () => {
     // A unique email per run, so tests don't collide with existing data
     const email = `e2e-${randomUUID()}@example.com`;
 
+    const body = {
+      email,
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      password: 'StrongPass1',
+    };
+
     it('creates a user and returns 201 without the password hash', async () => {
       const response = await request(app.getHttpServer())
         .post('/auth/register')
-        .send({ email, password: 'StrongPass1' })
+        .send(body)
         .expect(201);
 
       expect(response.body.email).toBe(email);
+      expect(response.body.firstName).toBe('Ada');
+      expect(response.body.lastName).toBe('Lovelace');
       expect(response.body.id).toBeDefined();
       expect(response.body).not.toHaveProperty('passwordHash');
     });
@@ -39,8 +48,18 @@ describe('Auth (e2e)', () => {
     it('returns 409 when the email is already registered', async () => {
       await request(app.getHttpServer())
         .post('/auth/register')
-        .send({ email, password: 'StrongPass1' })
+        .send(body)
         .expect(409);
+    });
+
+    it('returns 400 when the names are missing', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email: `e2e-${randomUUID()}@example.com`,
+          password: 'StrongPass1',
+        })
+        .expect(400);
     });
 
     it('returns 400 for an invalid body', async () => {
@@ -59,7 +78,7 @@ describe('Auth (e2e)', () => {
     beforeAll(async () => {
       await request(app.getHttpServer())
         .post('/auth/register')
-        .send({ email, password })
+        .send({ email, firstName: 'Ada', lastName: 'Lovelace', password })
         .expect(201);
     });
 

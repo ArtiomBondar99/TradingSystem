@@ -32,7 +32,12 @@ export class AuthService {
     const passwordHash = await this.passwordHasher.hash(dto.password);
 
     try {
-      const user = await this.usersService.create(dto.email, passwordHash);
+      const user = await this.usersService.create({
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        passwordHash,
+      });
       return UserResponseDto.fromEntity(user);
     } catch (error) {
       if (error instanceof EmailAlreadyExistsError) {

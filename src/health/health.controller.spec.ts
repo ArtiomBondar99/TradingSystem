@@ -20,6 +20,7 @@ describe('HealthController', () => {
     const status = {
       status: 'ok' as const,
       database: 'up' as const,
+      environment: 'test',
       timestamp: '2026-10-06T12:00:00.000Z',
     };
     healthService.check.mockResolvedValue(status);
