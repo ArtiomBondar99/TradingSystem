@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -21,6 +22,9 @@ const DUMMY_PASSWORD_HASH =
 
 @Injectable()
 export class AuthService {
+  // Routed to Pino (see main.ts); reqId and userId are attached automatically
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly passwordHasher: PasswordHasher,
@@ -38,9 +42,19 @@ export class AuthService {
         lastName: dto.lastName,
         passwordHash,
       });
+      this.logger.log({
+        action: 'user.registered',
+        userId: user.id,
+        msg: 'User registered',
+      });
       return UserResponseDto.fromEntity(user);
     } catch (error) {
       if (error instanceof EmailAlreadyExistsError) {
+        // No email in the log: it's personal data, and the action is enough
+        this.logger.warn({
+          action: 'user.register_conflict',
+          msg: 'Registration with an existing email',
+        });
         throw new ConflictException('Email is already registered');
       }
       throw error;
@@ -56,8 +70,21 @@ export class AuthService {
     );
 
     if (!user || !passwordMatches) {
+      // The reason is logged for us, never returned to the client
+      this.logger.warn({
+        action: 'user.login_failed',
+        reason: user ? 'wrong_password' : 'unknown_email',
+        userId: user?.id,
+        msg: 'Login failed',
+      });
       throw new UnauthorizedException('Invalid email or password');
     }
+
+    this.logger.log({
+      action: 'user.login',
+      userId: user.id,
+      msg: 'User logged in',
+    });
 
     const payload: JwtPayload = { sub: user.id, email: user.email };
 

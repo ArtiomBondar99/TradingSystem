@@ -4,9 +4,11 @@ import {
   NestModule,
   ValidationPipe,
 } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_PIPE } from '@nestjs/core';
+import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration.js';
+import { createLoggerOptions } from './config/logger.config.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -22,6 +24,10 @@ import { DatabaseModule } from './database/database.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: createLoggerOptions,
+    }),
     DatabaseModule,
     HealthModule,
     AuthModule,
