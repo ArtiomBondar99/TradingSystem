@@ -48,7 +48,7 @@ describe('RegisterDto', () => {
     ['a missing first name', { ...valid, firstName: undefined }],
     ['a whitespace-only last name', { ...valid, lastName: '   ' }],
     ['a first name over 50 chars', { ...valid, firstName: 'a'.repeat(51) }],
-    ['an unknown field', { ...valid, balance: 1e9 }],
+    ['an unknown field', { ...valid, cashBalance: 1e9 }],
   ])('rejects %s', async (_case, body) => {
     await expect(validate(body)).rejects.toBeInstanceOf(BadRequestException);
   });

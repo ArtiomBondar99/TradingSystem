@@ -25,12 +25,12 @@ model User {
 }
 
 model Wallet {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  userId    String   @unique @map("user_id") @db.Uuid
-  balance   Decimal  @db.Decimal(18, 2)
-  currency  String   @default("USD") @db.Char(3)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid(7)) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  cashBalance Decimal  @map("cash_balance") @db.Decimal(18, 2)
+  currency    String   @default("USD") @db.Char(3)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id])
 

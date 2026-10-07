@@ -48,7 +48,7 @@ describe('UsersRepository', () => {
         firstName: 'Ada',
         lastName: 'Lovelace',
         passwordHash: 'x',
-        wallet: { create: { balance: '100000.00' } },
+        wallet: { create: { cashBalance: '100000.00' } },
       },
     });
   });

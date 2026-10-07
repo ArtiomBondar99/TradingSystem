@@ -22,7 +22,7 @@ export class UsersRepository {
           firstName: data.firstName,
           lastName: data.lastName,
           passwordHash: data.passwordHash,
-          wallet: { create: { balance: data.initialBalance } },
+          wallet: { create: { cashBalance: data.initialBalance } },
         },
       });
     } catch (error) {

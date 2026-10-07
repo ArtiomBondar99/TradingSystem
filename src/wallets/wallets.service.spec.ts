@@ -28,7 +28,7 @@ describe('WalletsService', () => {
     walletsRepository.findByUserId.mockResolvedValue({
       id: 'wallet-1',
       userId: 'user-1',
-      balance: new Prisma.Decimal('100000'),
+      cashBalance: new Prisma.Decimal('100000'),
       currency: 'USD',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -36,7 +36,7 @@ describe('WalletsService', () => {
 
     const wallet = await service.getMyWallet('user-1');
 
-    expect(wallet.balance).toBe('100000.00');
+    expect(wallet.cashBalance).toBe('100000.00');
     expect(wallet.currency).toBe('USD');
     expect(wallet).not.toHaveProperty('userId');
   });
@@ -46,7 +46,7 @@ describe('WalletsService', () => {
     walletsRepository.findByUserId.mockResolvedValue({
       id: 'wallet-1',
       userId: 'user-1',
-      balance: new Prisma.Decimal('0.1').plus('0.2'),
+      cashBalance: new Prisma.Decimal('0.1').plus('0.2'),
       currency: 'USD',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -54,7 +54,7 @@ describe('WalletsService', () => {
 
     const wallet = await service.getMyWallet('user-1');
 
-    expect(wallet.balance).toBe('0.30');
+    expect(wallet.cashBalance).toBe('0.30');
   });
 
   it('throws 404 when the user has no wallet', async () => {

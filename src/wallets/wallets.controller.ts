@@ -4,12 +4,13 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { WalletResponseDto } from './dto/wallet-response.dto.js';
 import { WalletsService } from './wallets.service.js';
 
-@Controller('wallets')
+// Singular "wallet": every user has exactly one, identified by the JWT
+@Controller('wallet')
 @UseGuards(JwtAuthGuard)
 export class WalletsController {
   constructor(private readonly walletsService: WalletsService) {}
 
-  @Get('me')
+  @Get()
   getMyWallet(
     @CurrentUser('userId') userId: string,
   ): Promise<WalletResponseDto> {
