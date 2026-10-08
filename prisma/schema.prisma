@@ -19,7 +19,10 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  wallet Wallet?
+  wallet       Wallet?
+  orders       Order[]
+  positions    Position[]
+  transactions Transaction[]
 
   @@map("users")
 }
@@ -45,5 +48,94 @@ model Stock {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  orders       Order[]
+  positions    Position[]
+  transactions Transaction[]
+
   @@map("stocks")
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+}
+
+enum OrderStatus {
+  PENDING
+  FILLED
+  REJECTED
+  CANCELLED
+}
+
+// What the user asked for, and what happened to it
+model Order {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  userId       String      @map("user_id") @db.Uuid
+  stockId      String      @map("stock_id") @db.Uuid
+  side         OrderSide
+  type         OrderType   @default(MARKET)
+  quantity     Int
+  // Execution price; stays null until the order is FILLED
+  price        Decimal?    @db.Decimal(18, 2)
+  status       OrderStatus @default(PENDING)
+  rejectReason String?     @map("reject_reason")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  executedAt   DateTime?   @map("executed_at")
+
+  user        User         @relation(fields: [userId], references: [id])
+  stock       Stock        @relation(fields: [stockId], references: [id])
+  transaction Transaction?
+
+  // GET /orders lists a user's orders newest first
+  @@index([userId, createdAt])
+  @@map("orders")
+}
+
+// How many shares of a stock a user currently holds
+model Position {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  stockId      String   @map("stock_id") @db.Uuid
+  quantity     Int
+  // More decimals than prices: an average of several buys is rarely a round cent
+  averagePrice Decimal  @map("average_price") @db.Decimal(18, 4)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  // At most one position per user per stock (BUY updates it, never duplicates it)
+  @@unique([userId, stockId])
+  @@map("positions")
+}
+
+enum TransactionType {
+  BUY
+  SELL
+}
+
+// Immutable audit trail of executed trades: no updatedAt, never updated or deleted
+model Transaction {
+  id        String          @id @default(uuid(7)) @db.Uuid
+  userId    String          @map("user_id") @db.Uuid
+  orderId   String          @unique @map("order_id") @db.Uuid
+  stockId   String          @map("stock_id") @db.Uuid
+  type      TransactionType
+  quantity  Int
+  price     Decimal         @db.Decimal(18, 2)
+  // price * quantity: the cash that left (BUY) or entered (SELL) the wallet
+  amount    Decimal         @db.Decimal(18, 2)
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("transactions")
 }
