@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import {
   OrderSide,
@@ -25,6 +30,7 @@ type Trade = {
   price: Prisma.Decimal;
   // price * quantity: the cash that leaves (BUY) or enters (SELL) the wallet
   amount: Prisma.Decimal;
+  idempotencyKey: string | null;
 };
 
 @Injectable()
@@ -37,6 +43,7 @@ export class OrdersService {
   async placeOrder(
     userId: string,
     dto: CreateOrderDto,
+    idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
     // Read outside the transaction on purpose: a market order executes at the
     // price seen when it was placed. Only the wallet needs to be locked.
@@ -50,17 +57,76 @@ export class OrdersService {
       price: stock.currentPrice,
       // Decimal math, never JS numbers: 0.1 + 0.2 !== 0.3
       amount: stock.currentPrice.mul(dto.quantity),
+      idempotencyKey: idempotencyKey ?? null,
     };
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      const wallet = await this.lockWallet(tx, userId);
+    const order = await this.prisma
+      .$transaction(async (tx) => {
+        const wallet = await this.lockWallet(tx, userId);
 
-      return trade.side === OrderSide.BUY
-        ? this.buy(tx, wallet, trade)
-        : this.sell(tx, wallet, trade);
-    });
+        // Checked AFTER the lock: a retry sent at the same moment waits for
+        // the first request to commit, and then finds its order here
+        const previous = await this.findByIdempotencyKey(tx, trade);
+        if (previous) {
+          return previous;
+        }
+
+        return trade.side === OrderSide.BUY
+          ? this.buy(tx, wallet, trade)
+          : this.sell(tx, wallet, trade);
+      })
+      .catch((error: unknown) => {
+        // Safety net: the unique index caught a duplicate key the check above
+        // missed. Should never happen while every order takes the wallet lock.
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          throw new ConflictException(
+            'A request with this Idempotency-Key is already being processed',
+          );
+        }
+        throw error;
+      });
 
     return OrderResponseDto.fromEntity(order, stock.symbol);
+  }
+
+  // Same key = same request: return the saved order, don't trade again.
+  // Same key with a different body is a client bug, so we refuse it.
+  private async findByIdempotencyKey(
+    tx: Prisma.TransactionClient,
+    trade: Trade,
+  ): Promise<Order | null> {
+    if (!trade.idempotencyKey) {
+      return null;
+    }
+
+    const previous = await tx.order.findUnique({
+      where: {
+        userId_idempotencyKey: {
+          userId: trade.userId,
+          idempotencyKey: trade.idempotencyKey,
+        },
+      },
+    });
+
+    if (!previous) {
+      return null;
+    }
+
+    const sameRequest =
+      previous.stockId === trade.stockId &&
+      previous.side === trade.side &&
+      previous.quantity === trade.quantity;
+
+    if (!sameRequest) {
+      throw new UnprocessableEntityException(
+        'Idempotency-Key was already used for a different order',
+      );
+    }
+
+    return previous;
   }
 
   // Lock the wallet row until COMMIT. Every order of this user (BUY or SELL)
@@ -185,6 +251,7 @@ export class OrdersService {
         quantity: trade.quantity,
         status: OrderStatus.REJECTED,
         rejectReason: reason,
+        idempotencyKey: trade.idempotencyKey,
       },
     });
   }
@@ -203,6 +270,7 @@ export class OrdersService {
         price: trade.price,
         status: OrderStatus.FILLED,
         executedAt: new Date(),
+        idempotencyKey: trade.idempotencyKey,
       },
     });
 

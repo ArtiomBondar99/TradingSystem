@@ -73,23 +73,29 @@ enum OrderStatus {
 
 // What the user asked for, and what happened to it
 model Order {
-  id           String      @id @default(uuid(7)) @db.Uuid
-  userId       String      @map("user_id") @db.Uuid
-  stockId      String      @map("stock_id") @db.Uuid
-  side         OrderSide
-  type         OrderType   @default(MARKET)
-  quantity     Int
+  id             String      @id @default(uuid(7)) @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  stockId        String      @map("stock_id") @db.Uuid
+  side           OrderSide
+  type           OrderType   @default(MARKET)
+  quantity       Int
   // Execution price; stays null until the order is FILLED
-  price        Decimal?    @db.Decimal(18, 2)
-  status       OrderStatus @default(PENDING)
-  rejectReason String?     @map("reject_reason")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  executedAt   DateTime?   @map("executed_at")
+  price          Decimal?    @db.Decimal(18, 2)
+  status         OrderStatus @default(PENDING)
+  rejectReason   String?     @map("reject_reason")
+  // Client-generated (Idempotency-Key header): a retried request with the
+  // same key returns this order instead of trading twice
+  idempotencyKey String?     @map("idempotency_key") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at")
+  executedAt     DateTime?   @map("executed_at")
 
   user        User         @relation(fields: [userId], references: [id])
   stock       Stock        @relation(fields: [stockId], references: [id])
   transaction Transaction?
 
+  // Per user: two users may pick the same key. NULLs never collide in Postgres,
+  // so orders sent without a key are not affected.
+  @@unique([userId, idempotencyKey])
   // GET /orders lists a user's orders newest first
   @@index([userId, createdAt])
   @@map("orders")
