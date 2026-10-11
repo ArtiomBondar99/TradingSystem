@@ -4,5 +4,8 @@
   },
   "search.exclude": {
     "**/dist": true
-  }
+  },
+  // Format with the project's Prettier, not VS Code's built-in formatter
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true
 }
