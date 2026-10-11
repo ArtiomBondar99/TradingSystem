@@ -1,4 +1,20 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { ListTransactionsQueryDto } from './dto/list-transactions-query.dto.js';
+import { TransactionPageDto } from './dto/transaction-response.dto.js';
+import { TransactionsService } from './transactions.service.js';
 
 @Controller('transactions')
-export class TransactionsController {}
+@UseGuards(JwtAuthGuard)
+export class TransactionsController {
+  constructor(private readonly transactionsService: TransactionsService) {}
+
+  @Get()
+  getMyTransactions(
+    @CurrentUser('userId') userId: string,
+    @Query() query: ListTransactionsQueryDto,
+  ): Promise<TransactionPageDto> {
+    return this.transactionsService.getMyTransactions(userId, query);
+  }
+}
