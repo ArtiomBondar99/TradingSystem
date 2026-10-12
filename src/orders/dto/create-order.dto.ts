@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
 import { OrderSide, OrderType } from '../../generated/prisma/client.js';
@@ -6,6 +7,7 @@ import { OrderSide, OrderType } from '../../generated/prisma/client.js';
 export const MAX_ORDER_QUANTITY = 1_000_000;
 
 export class CreateOrderDto {
+  /** Case-insensitive: "aapl" works too. @example AAPL */
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
@@ -14,14 +16,17 @@ export class CreateOrderDto {
   })
   symbol: string;
 
+  /** @example BUY */
   @IsEnum(OrderSide, { message: 'side must be BUY or SELL' })
   side: OrderSide;
 
   // Only MARKET orders exist for now, so it's optional and defaults to MARKET
+  @ApiPropertyOptional()
   @IsOptional()
   @IsEnum(OrderType, { message: 'type must be MARKET' })
   type: OrderType = OrderType.MARKET;
 
+  /** @example 10 */
   // Whole shares only. IsInt rejects 1.5, "10" and 10.0000001
   @IsInt({ message: 'quantity must be a whole number' })
   @Min(1, { message: 'quantity must be at least 1' })

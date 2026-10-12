@@ -1,9 +1,11 @@
 import { Controller, Get, Param } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { StockResponseDto } from './dto/stock-response.dto.js';
 import { StockSymbolParamDto } from './dto/stock-symbol-param.dto.js';
 import { StocksService } from './stocks.service.js';
 
 // Public: browsing the stock list doesn't require logging in
+@ApiTags('stocks')
 @Controller('stocks')
 export class StocksController {
   constructor(private readonly stocksService: StocksService) {}

@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
@@ -6,7 +7,10 @@ export const MAX_PAGE_SIZE = 100;
 
 // GET /transactions?limit=20&cursor=<nextCursor from the previous page>
 export class ListTransactionsQueryDto {
-  // Query params always arrive as strings: "20" -> 20 ("abc" -> NaN, rejected)
+  // Query params always arrive as strings: "20" -> 20 ("abc" -> NaN, rejected).
+  // Optional for the client (it has a default), so tell Swagger explicitly:
+  // it only sees "limit: number" and would mark it required.
+  @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'limit must be a whole number' })
