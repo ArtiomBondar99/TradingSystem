@@ -20,6 +20,7 @@ import { PortfolioModule } from './portfolio/portfolio.module.js';
 import { TransactionsModule } from './transactions/transactions.module.js';
 import { MarketDataModule } from './market-data/market-data.module.js';
 import { DatabaseModule } from './database/database.module.js';
+import { CacheModule } from './cache/cache.module.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { DatabaseModule } from './database/database.module.js';
       useFactory: createLoggerOptions,
     }),
     DatabaseModule,
+    CacheModule,
     HealthModule,
     AuthModule,
     UsersModule,

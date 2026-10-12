@@ -18,6 +18,18 @@ services:
       timeout: 5s
       retries: 5
 
+  # Cache only: everything in it can be rebuilt from Postgres, so no volume
+  redis:
+    image: redis:8-alpine
+    container_name: paper-trading-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Not started by a plain "docker compose up": during development the API runs
   # locally with "npm run dev". To run it in Docker: docker compose --profile app up -d --build
   api:
@@ -30,10 +42,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      REDIS_URL: redis://redis:6379
     ports:
       - "${PORT}:3000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
