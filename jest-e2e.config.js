@@ -6,4 +6,6 @@ export default {
   ...baseConfig,
   testMatch: ['<rootDir>/test/**/*.e2e-spec.ts'],
   collectCoverageFrom: undefined,
+  // Booting AppModule on a cold ts-jest cache (first run, CI) takes > 5s
+  testTimeout: 30_000,
 };
