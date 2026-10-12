@@ -9,6 +9,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
+  // On SIGTERM (docker stop, a deploy), run every onModuleDestroy before
+  // exiting: finish the outbox batch, close RabbitMQ, Redis and Postgres
+  app.enableShutdownHooks();
+
   // Interactive API docs at /docs (raw OpenAPI JSON at /docs-json).
   // Request/response schemas come from the DTOs, via the Swagger CLI plugin
   // in nest-cli.json.

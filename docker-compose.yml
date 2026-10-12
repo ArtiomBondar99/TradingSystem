@@ -49,12 +49,30 @@ services:
       timeout: 10s
       retries: 5
 
+  # One-shot job: applies pending migrations and seeds the stocks, then exits.
+  # The API waits for it to finish successfully before starting.
+  migrate:
+    profiles: ['app']
+    build:
+      context: .
+      target: migrate
+    container_name: paper-trading-migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Not started by a plain "docker compose up": during development the API runs
   # locally with "npm run dev". To run it in Docker: docker compose --profile app up -d --build
   api:
     profiles: ['app']
-    build: .
+    build:
+      context: .
+      target: production
     container_name: paper-trading-api
+    # tini as PID 1: forwards SIGTERM to Node so the graceful shutdown runs
+    init: true
     environment:
       PORT: 3000
       # Inside Docker, the database host is the service name "postgres", not localhost
@@ -66,6 +84,8 @@ services:
     ports:
       - "${PORT}:3000"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
