@@ -1,5 +1,7 @@
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
 
@@ -12,6 +14,20 @@ async function bootstrap() {
   // On SIGTERM (docker stop, a deploy), run every onModuleDestroy before
   // exiting: finish the outbox batch, close RabbitMQ, Redis and Postgres
   app.enableShutdownHooks();
+
+  // Security headers on every response: no MIME sniffing, no framing
+  // (clickjacking), HSTS, a strict Content-Security-Policy, and no
+  // "X-Powered-By: Express" telling attackers what we run
+  app.use(helmet());
+
+  // Browsers block cross-origin calls unless we allow the caller's origin.
+  // Only the origins listed in CORS_ORIGINS; none by default.
+  const corsOrigins = app
+    .get(ConfigService)
+    .getOrThrow<string[]>('cors.origins');
+  if (corsOrigins.length > 0) {
+    app.enableCors({ origin: corsOrigins });
+  }
 
   // Interactive API docs at /docs (raw OpenAPI JSON at /docs-json).
   // Request/response schemas come from the DTOs, via the Swagger CLI plugin

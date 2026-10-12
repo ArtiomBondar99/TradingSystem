@@ -12,6 +12,7 @@ Built with NestJS, TypeScript, PostgreSQL (Prisma), Redis, RabbitMQ and Docker.
 - **Transactional outbox**: an `order.filled` event is saved in the same database transaction as the trade, then relayed to RabbitMQ. No event is lost, and no event is sent for a trade that didn't happen.
 - **Redis cache** for stock prices, which fails open: if Redis is down, the API keeps serving from PostgreSQL.
 - **Immutable audit trail**: executed trades are stored in a `transactions` table that a database trigger prevents from being updated or deleted.
+- **Security**: Argon2 password hashing, login that doesn't reveal whether an email exists, Redis-backed rate limiting shared by all instances (5/min on `/auth`), Helmet security headers, CORS allowlist, and startup validation that refuses a missing or weak `JWT_SECRET`.
 - One error format for every response, with a `requestId` to find the request in the structured (Pino) logs.
 
 ## Getting started

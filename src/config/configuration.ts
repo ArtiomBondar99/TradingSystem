@@ -18,4 +18,19 @@ export default () => ({
     environment: process.env.NODE_ENV ?? 'development',
     logLevel: process.env.LOG_LEVEL ?? 'info',
   },
+  rateLimit: {
+    // On everywhere except tests, where one runner creates dozens of users
+    // per minute from the same IP. Set RATE_LIMIT_ENABLED to force it.
+    enabled:
+      (process.env.RATE_LIMIT_ENABLED ??
+        String(process.env.NODE_ENV !== 'test')) === 'true',
+  },
+  cors: {
+    // Comma-separated browser origins allowed to call the API, e.g.
+    // "http://localhost:5173,https://app.example.com". Empty = no CORS.
+    origins: (process.env.CORS_ORIGINS ?? '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  },
 });

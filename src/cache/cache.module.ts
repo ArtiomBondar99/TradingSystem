@@ -19,6 +19,7 @@ import { CacheService, REDIS_CLIENT } from './cache.service.js';
     },
     CacheService,
   ],
-  exports: [CacheService],
+  // REDIS_CLIENT too: RateLimitGuard counts requests in Redis directly
+  exports: [CacheService, REDIS_CLIENT],
 })
 export class CacheModule {}
