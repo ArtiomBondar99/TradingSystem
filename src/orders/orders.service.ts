@@ -11,6 +11,8 @@ import {
   Prisma,
   type Order,
 } from '../generated/prisma/client.js';
+import type { OrderFilledEvent } from '../messaging/events/order-filled.event.js';
+import { OrderEvents } from '../messaging/messaging.constants.js';
 import { StocksService } from '../stocks/stocks.service.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
 import { OrderResponseDto } from './dto/order-response.dto.js';
@@ -25,6 +27,7 @@ type LockedWallet = { id: string; cash_balance: Prisma.Decimal };
 type Trade = {
   userId: string;
   stockId: string;
+  symbol: string;
   side: OrderSide;
   quantity: number;
   price: Prisma.Decimal;
@@ -52,6 +55,7 @@ export class OrdersService {
     const trade: Trade = {
       userId,
       stockId: stock.id,
+      symbol: stock.symbol,
       side: dto.side,
       quantity: dto.quantity,
       price: stock.currentPrice,
@@ -285,6 +289,23 @@ export class OrdersService {
         price: trade.price,
         amount: trade.amount,
       },
+    });
+
+    // Transactional outbox: saved in the same transaction as the order, so
+    // the event exists if and only if the trade happened. OutboxRelay
+    // publishes it to RabbitMQ after COMMIT.
+    const event: OrderFilledEvent = {
+      orderId: order.id,
+      userId: trade.userId,
+      symbol: trade.symbol,
+      side: trade.side,
+      quantity: trade.quantity,
+      price: trade.price.toFixed(2),
+      amount: trade.amount.toFixed(2),
+      executedAt: (order.executedAt ?? new Date()).toISOString(),
+    };
+    await tx.outboxEvent.create({
+      data: { type: OrderEvents.FILLED, payload: event },
     });
 
     return order;

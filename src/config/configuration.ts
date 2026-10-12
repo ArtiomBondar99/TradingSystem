@@ -6,6 +6,10 @@ export default () => ({
   redis: {
     url: process.env.REDIS_URL ?? 'redis://localhost:6379',
   },
+  rabbitmq: {
+    // Dev default, matches docker-compose.yml; set RABBITMQ_URL everywhere else
+    url: process.env.RABBITMQ_URL ?? 'amqp://trading:change_me@localhost:5672',
+  },
   jwt: {
     secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN ?? '15m',

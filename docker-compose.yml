@@ -30,6 +30,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # Message broker. Management UI: http://localhost:15672
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: paper-trading-rabbitmq
+    environment:
+      # Not "guest": RabbitMQ only lets guest log in from inside the container
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-trading}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change_me}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
   # Not started by a plain "docker compose up": during development the API runs
   # locally with "npm run dev". To run it in Docker: docker compose --profile app up -d --build
   api:
@@ -43,6 +62,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-trading}:${RABBITMQ_PASSWORD:-change_me}@rabbitmq:5672
     ports:
       - "${PORT}:3000"
     depends_on:
@@ -50,6 +70,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  rabbitmq_data:

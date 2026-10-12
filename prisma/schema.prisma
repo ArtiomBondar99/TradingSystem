@@ -145,3 +145,20 @@ model Transaction {
   @@index([userId, createdAt])
   @@map("transactions")
 }
+
+// Transactional outbox: an event is written in the SAME database transaction as
+// the change it describes (e.g. a filled order), so it's saved if and only if
+// that change is. OutboxRelay then publishes it to RabbitMQ.
+model OutboxEvent {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  // Also the RabbitMQ routing key, e.g. "order.filled"
+  type        String
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  // null = not published yet
+  publishedAt DateTime? @map("published_at")
+
+  // The relay asks for "unpublished, oldest first"
+  @@index([publishedAt, createdAt])
+  @@map("outbox_events")
+}

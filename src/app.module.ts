@@ -21,6 +21,8 @@ import { TransactionsModule } from './transactions/transactions.module.js';
 import { MarketDataModule } from './market-data/market-data.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { CacheModule } from './cache/cache.module.js';
+import { MessagingModule } from './messaging/messaging.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 
 @Module({
   imports: [
@@ -31,6 +33,7 @@ import { CacheModule } from './cache/cache.module.js';
     }),
     DatabaseModule,
     CacheModule,
+    MessagingModule,
     HealthModule,
     AuthModule,
     UsersModule,
@@ -40,6 +43,7 @@ import { CacheModule } from './cache/cache.module.js';
     PortfolioModule,
     TransactionsModule,
     MarketDataModule,
+    NotificationsModule,
   ],
   providers: [
     {
