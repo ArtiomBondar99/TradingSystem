@@ -5,8 +5,9 @@ import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
 
-// GET /transactions?limit=20&cursor=<nextCursor from the previous page>
-export class ListTransactionsQueryDto {
+// ?limit=20&cursor=<nextCursor from the previous page>
+// Shared by every cursor-paginated list (GET /orders, GET /transactions)
+export class CursorPaginationQueryDto {
   // Query params always arrive as strings: "20" -> 20 ("abc" -> NaN, rejected).
   // Optional for the client (it has a default), so tell Swagger explicitly:
   // it only sees "limit: number" and would mark it required.

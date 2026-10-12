@@ -63,6 +63,7 @@ Full request/response schemas are in Swagger at `/docs`.
 | GET | `/stocks` | – | All tradable stocks with current prices (cached) |
 | GET | `/stocks/:symbol` | – | One stock, e.g. `/stocks/AAPL` |
 | POST | `/orders` | Bearer | Buy or sell at market price. Optional `Idempotency-Key` header |
+| GET | `/orders` | Bearer | Order history (filled and rejected), newest first, cursor-paginated. Optional `?status=REJECTED` |
 | GET | `/portfolio` | Bearer | Holdings, market value and unrealized profit/loss |
 | GET | `/transactions` | Bearer | Trade history, newest first, cursor-paginated (`?limit=&cursor=`) |
 

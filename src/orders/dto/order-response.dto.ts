@@ -34,3 +34,10 @@ export class OrderResponseDto {
     };
   }
 }
+
+// A class (not CursorPage<OrderResponseDto>) so Swagger can document it
+export class OrderPageDto {
+  items: OrderResponseDto[];
+  // Pass it as ?cursor= to get the next page; null means this was the last one
+  nextCursor: string | null;
+}

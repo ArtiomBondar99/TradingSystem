@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../database/prisma.service.js';
 import { Prisma, type Stock } from '../generated/prisma/client.js';
 import { StocksService } from '../stocks/stocks.service.js';
+import { OrdersRepository, type OrderWithStock } from './orders.repository.js';
 import {
   INSUFFICIENT_FUNDS,
   INSUFFICIENT_SHARES,
@@ -66,6 +67,9 @@ describe('OrdersService', () => {
   const stocksService = {
     getBySymbolOrThrow: jest.fn<StocksService['getBySymbolOrThrow']>(),
   };
+  const ordersRepository = {
+    findPageByUserId: jest.fn<OrdersRepository['findPageByUserId']>(),
+  };
 
   const givenCash = (cash: string) =>
     tx.$queryRaw.mockResolvedValue([{ id: 'wallet-1', cash_balance: D(cash) }]);
@@ -91,6 +95,7 @@ describe('OrdersService', () => {
         OrdersService,
         { provide: PrismaService, useValue: prisma },
         { provide: StocksService, useValue: stocksService },
+        { provide: OrdersRepository, useValue: ordersRepository },
       ],
     }).compile();
 
@@ -370,5 +375,70 @@ describe('OrdersService', () => {
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  describe('order history', () => {
+    const order = (id: string, status: 'FILLED' | 'REJECTED') =>
+      ({
+        id,
+        userId: 'user-1',
+        stockId: 'stock-aapl',
+        side: 'BUY',
+        type: 'MARKET',
+        quantity: 10,
+        price: status === 'FILLED' ? D('190') : null,
+        status,
+        rejectReason: status === 'REJECTED' ? INSUFFICIENT_FUNDS : null,
+        idempotencyKey: null,
+        createdAt: new Date(),
+        executedAt: status === 'FILLED' ? new Date() : null,
+        stock: apple,
+      }) as OrderWithStock;
+
+    it('lists FILLED and REJECTED orders with the stock symbol', async () => {
+      ordersRepository.findPageByUserId.mockResolvedValue([
+        order('o1', 'REJECTED'),
+        order('o2', 'FILLED'),
+      ]);
+
+      const page = await service.getMyOrders('user-1', { limit: 20 });
+
+      expect(page.items).toMatchObject([
+        { id: 'o1', symbol: 'AAPL', status: 'REJECTED', price: null },
+        { id: 'o2', symbol: 'AAPL', status: 'FILLED', price: '190.00' },
+      ]);
+      expect(page.items[0]).not.toHaveProperty('userId');
+      expect(page.nextCursor).toBeNull();
+    });
+
+    it('passes the status filter and asks for one extra row', async () => {
+      ordersRepository.findPageByUserId.mockResolvedValue([]);
+
+      await service.getMyOrders('user-1', {
+        limit: 5,
+        cursor: 'c1',
+        status: 'REJECTED',
+      });
+
+      expect(ordersRepository.findPageByUserId).toHaveBeenCalledWith(
+        'user-1',
+        6,
+        'c1',
+        'REJECTED',
+      );
+    });
+
+    it('returns a nextCursor when there are more orders', async () => {
+      ordersRepository.findPageByUserId.mockResolvedValue([
+        order('o1', 'FILLED'),
+        order('o2', 'FILLED'),
+        order('o3', 'FILLED'),
+      ]);
+
+      const page = await service.getMyOrders('user-1', { limit: 2 });
+
+      expect(page.items.map((o) => o.id)).toEqual(['o1', 'o2']);
+      expect(page.nextCursor).toBe('o2');
+    });
   });
 });

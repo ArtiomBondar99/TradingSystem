@@ -1,11 +1,11 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import {
   DEFAULT_PAGE_SIZE,
-  ListTransactionsQueryDto,
+  CursorPaginationQueryDto,
   MAX_PAGE_SIZE,
-} from './list-transactions-query.dto.js';
+} from './cursor-pagination-query.dto.js';
 
-describe('ListTransactionsQueryDto', () => {
+describe('CursorPaginationQueryDto', () => {
   // Same options as the global pipe in AppModule
   const pipe = new ValidationPipe({
     whitelist: true,
@@ -16,8 +16,8 @@ describe('ListTransactionsQueryDto', () => {
   const validate = (query: unknown) =>
     pipe.transform(query, {
       type: 'query',
-      metatype: ListTransactionsQueryDto,
-    }) as Promise<ListTransactionsQueryDto>;
+      metatype: CursorPaginationQueryDto,
+    }) as Promise<CursorPaginationQueryDto>;
 
   it('defaults limit when it is missing', async () => {
     const query = await validate({});

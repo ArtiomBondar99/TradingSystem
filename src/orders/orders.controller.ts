@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Get,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -15,7 +17,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
-import { OrderResponseDto } from './dto/order-response.dto.js';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto.js';
+import { OrderPageDto, OrderResponseDto } from './dto/order-response.dto.js';
 import { OrdersService } from './orders.service.js';
 
 @ApiTags('orders')
@@ -47,5 +50,14 @@ export class OrdersController {
     idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
     return this.ordersService.placeOrder(userId, dto, idempotencyKey);
+  }
+
+  // Order history, newest first. ?status=REJECTED shows only rejected orders
+  @Get()
+  getMyOrders(
+    @CurrentUser('userId') userId: string,
+    @Query() query: ListOrdersQueryDto,
+  ): Promise<OrderPageDto> {
+    return this.ordersService.getMyOrders(userId, query);
   }
 }

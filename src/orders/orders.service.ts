@@ -4,6 +4,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { toCursorPage } from '../common/pagination.js';
 import { PrismaService } from '../database/prisma.service.js';
 import {
   OrderSide,
@@ -15,7 +16,9 @@ import type { OrderFilledEvent } from '../messaging/events/order-filled.event.js
 import { OrderEvents } from '../messaging/messaging.constants.js';
 import { StocksService } from '../stocks/stocks.service.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
-import { OrderResponseDto } from './dto/order-response.dto.js';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto.js';
+import { OrderPageDto, OrderResponseDto } from './dto/order-response.dto.js';
+import { OrdersRepository } from './orders.repository.js';
 
 export const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS';
 export const INSUFFICIENT_SHARES = 'INSUFFICIENT_SHARES';
@@ -41,7 +44,32 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stocksService: StocksService,
+    private readonly ordersRepository: OrdersRepository,
   ) {}
+
+  // Order history: every order the user placed, FILLED and REJECTED alike
+  // (GET /transactions shows only the executed ones)
+  async getMyOrders(
+    userId: string,
+    query: ListOrdersQueryDto,
+  ): Promise<OrderPageDto> {
+    // Ask for one extra row: if it exists, there is a next page
+    const rows = await this.ordersRepository.findPageByUserId(
+      userId,
+      query.limit + 1,
+      query.cursor,
+      query.status,
+    );
+
+    const page = toCursorPage(rows, query.limit);
+
+    return {
+      items: page.items.map((order) =>
+        OrderResponseDto.fromEntity(order, order.stock.symbol),
+      ),
+      nextCursor: page.nextCursor,
+    };
+  }
 
   async placeOrder(
     userId: string,

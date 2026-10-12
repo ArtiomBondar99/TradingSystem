@@ -191,4 +191,71 @@ describe('Orders (e2e)', () => {
       'not-a-uuid',
     ).expect(400);
   });
+
+  describe('GET /orders (order history)', () => {
+    const listOrders = (token: string, query = '') =>
+      request(app.getHttpServer())
+        .get(`/orders${query}`)
+        .set('Authorization', `Bearer ${token}`);
+
+    it('shows every order newest first, REJECTED ones included', async () => {
+      const token = await signUp();
+      await placeOrder(token, { symbol: 'AAPL', side: 'BUY', quantity: 1 });
+      await placeOrder(token, { symbol: 'AAPL', side: 'BUY', quantity: 1e6 });
+
+      const response = await listOrders(token).expect(200);
+
+      expect(response.body.items).toMatchObject([
+        { status: 'REJECTED', rejectReason: 'INSUFFICIENT_FUNDS' },
+        { status: 'FILLED', symbol: 'AAPL', quantity: 1 },
+      ]);
+      expect(response.body.nextCursor).toBeNull();
+    });
+
+    it('filters by status', async () => {
+      const token = await signUp();
+      await placeOrder(token, { symbol: 'AAPL', side: 'BUY', quantity: 1 });
+      await placeOrder(token, { symbol: 'AAPL', side: 'SELL', quantity: 5 });
+
+      const response = await listOrders(token, '?status=REJECTED').expect(200);
+
+      expect(response.body.items).toHaveLength(1);
+      expect(response.body.items[0].rejectReason).toBe('INSUFFICIENT_SHARES');
+    });
+
+    it('pages through the history with the cursor', async () => {
+      const token = await signUp();
+      for (const quantity of [1, 2, 3]) {
+        await placeOrder(token, { symbol: 'AAPL', side: 'BUY', quantity });
+      }
+
+      const first = await listOrders(token, '?limit=2').expect(200);
+      const second = await listOrders(
+        token,
+        `?limit=2&cursor=${first.body.nextCursor}`,
+      ).expect(200);
+
+      const quantities = [...first.body.items, ...second.body.items].map(
+        (o: { quantity: number }) => o.quantity,
+      );
+      expect(quantities).toEqual([3, 2, 1]);
+      expect(second.body.nextCursor).toBeNull();
+    });
+
+    it('shows only the current user’s orders', async () => {
+      const alice = await signUp();
+      const bob = await signUp();
+      await placeOrder(alice, { symbol: 'AAPL', side: 'BUY', quantity: 1 });
+
+      const response = await listOrders(bob).expect(200);
+
+      expect(response.body.items).toEqual([]);
+    });
+
+    it('returns 400 for an unknown status', async () => {
+      const token = await signUp();
+
+      await listOrders(token, '?status=DONE').expect(400);
+    });
+  });
 });
