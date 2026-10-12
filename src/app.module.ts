@@ -5,11 +5,12 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration.js';
 import { createLoggerOptions } from './config/logger.config.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
@@ -46,6 +47,9 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     NotificationsModule,
   ],
   providers: [
+    // Registered here (not with app.useGlobalFilters in main.ts) so it also
+    // applies in e2e tests and can use dependency injection
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
     {
       provide: APP_PIPE,
       useValue: new ValidationPipe({
