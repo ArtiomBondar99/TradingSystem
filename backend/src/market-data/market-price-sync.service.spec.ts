@@ -87,14 +87,17 @@ describe('MarketPriceSyncService', () => {
     stocksService.findAll.mockResolvedValue([stock('AAPL', '190.00')]);
     marketData.getFreshQuote.mockResolvedValue(quote('AAPL', 191.5));
     const published: string[] = [];
-    priceFeed.quotes$.subscribe((q) => published.push(q.symbol));
+    // At the moment of publishing, had the database write already happened?
+    let writtenFirst = false;
+    priceFeed.quotes$.subscribe((q) => {
+      published.push(q.symbol);
+      writtenFirst = stocksService.updatePrice.mock.calls.length > 0;
+    });
 
     await service.syncPrices();
 
     expect(published).toEqual(['AAPL']);
-    expect(stocksService.updatePrice.mock.invocationCallOrder[0]).toBeLessThan(
-      Number.MAX_SAFE_INTEGER,
-    );
+    expect(writtenFirst).toBe(true);
     expect(priceFeed.latestFor('AAPL')?.price).toBe(191.5);
   });
 

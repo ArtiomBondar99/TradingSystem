@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
@@ -10,6 +9,7 @@ import {
   MessageBody,
   SubscribeMessage,
   WebSocketGateway,
+  WsException,
   type OnGatewayConnection,
   type OnGatewayDisconnect,
 } from '@nestjs/websockets';
@@ -49,7 +49,8 @@ type Reply = { event: string; data: unknown };
  * Server -> client:
  *   quote       { symbol, price, change, ... }   whenever the price changes
  *   order       { orderId, side, price, ... }    one of my orders filled
- *   subscribed / authenticated / error
+ *   subscribed / authenticated
+ *   exception   { status: "error", message }  a bad request (Nest's format)
  *
  * Quotes come from PriceFeed (published right after the database has the
  * price); order fills from RabbitMQ, broadcast to every API instance so the
@@ -125,7 +126,7 @@ export class RealtimeGateway
 
     const total = new Set([...client.symbols, ...symbols]);
     if (total.size > MAX_SYMBOLS_PER_CONNECTION) {
-      throw new BadRequestException(
+      throw new WsException(
         `At most ${MAX_SYMBOLS_PER_CONNECTION} symbols per connection`,
       );
     }
@@ -163,7 +164,7 @@ export class RealtimeGateway
   ): Promise<Reply> {
     const token = (data as { token?: unknown } | null)?.token;
     if (typeof token !== 'string') {
-      throw new BadRequestException('auth needs { token }');
+      throw new WsException('auth needs { token }');
     }
 
     try {
@@ -171,7 +172,7 @@ export class RealtimeGateway
       this.client(socket).userId = payload.sub;
       return { event: 'authenticated', data: {} };
     } catch {
-      return { event: 'error', data: { message: 'Invalid or expired token' } };
+      throw new WsException('Invalid or expired token');
     }
   }
 
@@ -203,7 +204,7 @@ export class RealtimeGateway
   private client(socket: WebSocket): Client {
     const client = this.clients.get(socket);
     if (!client) {
-      throw new BadRequestException('Unknown connection');
+      throw new WsException('Unknown connection');
     }
     return client;
   }
@@ -212,7 +213,7 @@ export class RealtimeGateway
   private async knownSymbols(data: unknown): Promise<string[]> {
     const raw = (data as { symbols?: unknown } | null)?.symbols;
     if (!Array.isArray(raw) || raw.some((s) => typeof s !== 'string')) {
-      throw new BadRequestException('Expected { symbols: string[] }');
+      throw new WsException('Expected { symbols: string[] }');
     }
 
     const symbols = [
@@ -223,7 +224,7 @@ export class RealtimeGateway
     );
     const unknown = symbols.filter((symbol) => !listed.has(symbol));
     if (unknown.length > 0) {
-      throw new BadRequestException(`Unknown symbol(s): ${unknown.join(', ')}`);
+      throw new WsException(`Unknown symbol(s): ${unknown.join(', ')}`);
     }
     return symbols;
   }
