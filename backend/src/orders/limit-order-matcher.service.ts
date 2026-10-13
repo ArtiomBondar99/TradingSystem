@@ -11,10 +11,12 @@ import { OrdersService } from './orders.service.js';
 const BATCH_SIZE = 100;
 
 /**
- * The simulated exchange's matching engine for LIMIT orders. Every few
- * seconds it finds the open orders whose limit the current price has reached
- * (a BUY at or below its limit, a SELL at or above it) and executes them,
- * oldest first (time priority, like a real order book).
+ * The simulated exchange's matching engine for waiting orders. Every few
+ * seconds, while the market is open, it finds the open orders the current
+ * price has triggered and executes them, oldest first (time priority, like a
+ * real order book):
+ * - LIMIT: a BUY at or below its limit, a SELL at or above it
+ * - STOP: a BUY at or above its stop, a SELL at or below it
  *
  * It only picks candidates; OrdersService re-checks everything under the
  * wallet lock before filling, so running it on several API instances at once
@@ -57,16 +59,23 @@ export class LimitOrderMatcher
 
   /** One matching round; returns how many orders were filled */
   async matchOnce(): Promise<number> {
-    // Served by the (status, stock_id) index: only the open orders are read
+    // No market, no fills: orders wait for the next open
+    if (!this.ordersService.isMarketOpen()) {
+      return 0;
+    }
+
+    // Served by the (status, stock_id) index: only the open orders are read.
+    // Same conditions as isTriggered() in execution-rules.ts.
     const candidates = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT o.id
       FROM orders o
       JOIN stocks s ON s.id = o.stock_id
       WHERE o.status = 'PENDING'
-        AND o.type = 'LIMIT'
         AND (
-          (o.side = 'BUY' AND s.current_price <= o.limit_price) OR
-          (o.side = 'SELL' AND s.current_price >= o.limit_price)
+          (o.type = 'LIMIT' AND o.side = 'BUY'  AND s.current_price <= o.limit_price) OR
+          (o.type = 'LIMIT' AND o.side = 'SELL' AND s.current_price >= o.limit_price) OR
+          (o.type = 'STOP'  AND o.side = 'BUY'  AND s.current_price >= o.stop_price) OR
+          (o.type = 'STOP'  AND o.side = 'SELL' AND s.current_price <= o.stop_price)
         )
       ORDER BY o.created_at
       LIMIT ${BATCH_SIZE}

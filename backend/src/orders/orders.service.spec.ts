@@ -1,19 +1,21 @@
-import { jest } from '@jest/globals';
+import { afterEach, jest } from '@jest/globals';
 import {
   BadRequestException,
   ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../database/prisma.service.js';
 import { Prisma, type Stock } from '../generated/prisma/client.js';
 import { StocksService } from '../stocks/stocks.service.js';
+import type { ExecutionRules } from './execution-rules.js';
 import { OrdersRepository, type OrderWithStock } from './orders.repository.js';
 import {
   INSUFFICIENT_FUNDS,
   INSUFFICIENT_SHARES,
-  isMarketable,
+  MARKET_CLOSED,
   OrdersService,
 } from './orders.service.js';
 
@@ -45,6 +47,7 @@ describe('OrdersService', () => {
       update: jest.fn(async ({ where, data }: any) => ({
         id: where.id,
         type: 'LIMIT',
+        fee: D(0),
         rejectReason: null,
         createdAt: new Date(),
         ...data,
@@ -53,7 +56,10 @@ describe('OrdersService', () => {
       create: jest.fn(async ({ data }: any) => ({
         id: 'order-1',
         type: 'MARKET',
+        limitPrice: null,
+        stopPrice: null,
         price: null,
+        fee: D(0),
         rejectReason: null,
         executedAt: null,
         idempotencyKey: null,
@@ -81,6 +87,14 @@ describe('OrdersService', () => {
   const stocksService = {
     getBySymbolOrThrow: jest.fn<StocksService['getBySymbolOrThrow']>(),
   };
+  // Plain fills by default (no fee, no slippage, any time), so the numbers in
+  // these tests stay simple; the rules have their own tests below
+  const PLAIN: ExecutionRules = {
+    feesEnabled: false,
+    slippageBps: 0,
+    enforceMarketHours: false,
+  };
+  const config = { getOrThrow: jest.fn<(key: string) => ExecutionRules>() };
   const ordersRepository = {
     findPageByUserId: jest.fn<OrdersRepository['findPageByUserId']>(),
   };
@@ -104,6 +118,7 @@ describe('OrdersService', () => {
     tx.order.findUnique.mockResolvedValue(null);
     tx.order.findMany.mockResolvedValue([]);
     tx.position.findUnique.mockResolvedValue(null);
+    config.getOrThrow.mockReturnValue(PLAIN);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -111,6 +126,7 @@ describe('OrdersService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: StocksService, useValue: stocksService },
         { provide: OrdersRepository, useValue: ordersRepository },
+        { provide: ConfigService, useValue: config },
       ],
     }).compile();
 
@@ -328,6 +344,7 @@ describe('OrdersService', () => {
         type: 'MARKET',
         quantity: 10,
         price: D('190'),
+        fee: D(0),
         status: 'FILLED',
         rejectReason: null,
         createdAt: new Date(),
@@ -401,7 +418,10 @@ describe('OrdersService', () => {
         side: 'BUY',
         type: 'MARKET',
         quantity: 10,
+        limitPrice: null,
+        stopPrice: null,
         price: status === 'FILLED' ? D('190') : null,
+        fee: D(0),
         status,
         rejectReason: status === 'REJECTED' ? INSUFFICIENT_FUNDS : null,
         idempotencyKey: null,
@@ -457,17 +477,6 @@ describe('OrdersService', () => {
     });
   });
 
-  describe('isMarketable', () => {
-    it('a BUY limit executes at or below its limit, a SELL at or above', () => {
-      expect(isMarketable('BUY', D('190'), D('190'))).toBe(true);
-      expect(isMarketable('BUY', D('189.99'), D('190'))).toBe(true);
-      expect(isMarketable('BUY', D('190.01'), D('190'))).toBe(false);
-      expect(isMarketable('SELL', D('190'), D('190'))).toBe(true);
-      expect(isMarketable('SELL', D('190.01'), D('190'))).toBe(true);
-      expect(isMarketable('SELL', D('189.99'), D('190'))).toBe(false);
-    });
-  });
-
   describe('LIMIT orders', () => {
     // The market price of AAPL is 190 (see `apple`)
     const limit = (
@@ -494,6 +503,7 @@ describe('OrdersService', () => {
       tx.order.findMany.mockResolvedValue(
         orders.map((o) => ({
           ...o,
+          type: 'LIMIT',
           stockId: 'stock-aapl',
           limitPrice: D(o.limitPrice),
         })),
@@ -588,6 +598,7 @@ describe('OrdersService', () => {
       type: 'LIMIT',
       quantity: 10,
       limitPrice: D('195'),
+      stopPrice: null,
       status: 'PENDING',
       idempotencyKey: null,
       stock: apple, // trades at 190
@@ -671,6 +682,205 @@ describe('OrdersService', () => {
         service.cancelOrder('user-1', 'order-1'),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(tx.order.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('execution rules: fees, slippage, market hours', () => {
+    const REAL: ExecutionRules = {
+      feesEnabled: true,
+      slippageBps: 5,
+      enforceMarketHours: true,
+    };
+    // Tuesday 11:00 New York: open. Saturday: closed.
+    const OPEN = new Date('2026-10-13T15:00:00Z');
+    const CLOSED = new Date('2026-10-17T15:00:00Z');
+
+    const market = (side: 'BUY' | 'SELL', quantity: number) =>
+      service.placeOrder('user-1', {
+        symbol: 'AAPL',
+        side,
+        type: 'MARKET',
+        quantity,
+      });
+
+    beforeEach(() => {
+      config.getOrThrow.mockReturnValue(REAL);
+      jest.useFakeTimers({ now: OPEN });
+      givenCash('100000');
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('a BUY pays the slipped price plus the commission', async () => {
+      const order = await market('BUY', 10);
+
+      // 190 * 1.0005 = 190.095 -> 190.10. 10 shares = 1901.00, fee min 1.00
+      expect(order).toMatchObject({
+        status: 'FILLED',
+        price: '190.10',
+        fee: '1.00',
+      });
+      expect(
+        firstArg(tx.wallet.update).data.cashBalance.decrement.toFixed(2),
+      ).toBe('1902.00');
+      expect(firstArg(tx.transaction.create).data).toMatchObject({
+        amount: D('1901'),
+        fee: D('1'),
+      });
+    });
+
+    it('a SELL gets the slipped price minus the commission', async () => {
+      givenPosition(10, '150');
+
+      const order = await market('SELL', 10);
+
+      // 190 * 0.9995 = 189.905 -> 189.90. 1899.00 - 1.00
+      expect(order.price).toBe('189.90');
+      expect(
+        firstArg(tx.wallet.update).data.cashBalance.increment.toFixed(2),
+      ).toBe('1898.00');
+    });
+
+    it('counts the commission in the cash check', async () => {
+      givenCash('1901.99'); // needs 1901.00 + 1.00
+
+      expect((await market('BUY', 10)).rejectReason).toBe(INSUFFICIENT_FUNDS);
+    });
+
+    it('rejects a MARKET order while the market is closed', async () => {
+      jest.setSystemTime(CLOSED);
+
+      const order = await market('BUY', 10);
+
+      expect(order).toMatchObject({
+        status: 'REJECTED',
+        rejectReason: MARKET_CLOSED,
+      });
+      expect(tx.wallet.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps a LIMIT that could fill waiting until the market opens', async () => {
+      jest.setSystemTime(CLOSED);
+
+      const order = await service.placeOrder('user-1', {
+        symbol: 'AAPL',
+        side: 'BUY',
+        type: 'LIMIT',
+        quantity: 10,
+        limitPrice: 200,
+      });
+
+      expect(order.status).toBe('PENDING');
+    });
+
+    it('the matcher does nothing while the market is closed', async () => {
+      jest.setSystemTime(CLOSED);
+
+      await expect(service.executePendingOrder('order-1')).resolves.toBeNull();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('STOP orders', () => {
+    const stop = (side: 'BUY' | 'SELL', quantity: number, stopPrice: number) =>
+      service.placeOrder('user-1', {
+        symbol: 'AAPL',
+        side,
+        type: 'STOP',
+        quantity,
+        stopPrice,
+      });
+
+    it('a SELL stop below the price waits (a stop-loss)', async () => {
+      givenCash('0');
+      givenPosition(10, '150');
+
+      const order = await stop('SELL', 10, 180);
+
+      expect(order).toMatchObject({ status: 'PENDING', stopPrice: '180.00' });
+      expect(tx.wallet.update).not.toHaveBeenCalled();
+    });
+
+    it('a SELL stop the price already crossed executes at market', async () => {
+      givenCash('0');
+      givenPosition(10, '150');
+
+      // The price (190) is already at or below 195
+      const order = await stop('SELL', 10, 195);
+
+      expect(order).toMatchObject({ status: 'FILLED', price: '190.00' });
+    });
+
+    it('the matcher fills a BUY stop once the price rises to it, at market', async () => {
+      givenCash('100000');
+      const pending = {
+        id: 'order-stop',
+        userId: 'user-1',
+        stockId: 'stock-aapl',
+        side: 'BUY',
+        type: 'STOP',
+        quantity: 5,
+        limitPrice: null,
+        stopPrice: D('185'),
+        status: 'PENDING',
+        idempotencyKey: null,
+        stock: apple, // 190: above the stop
+      };
+      prisma.order.findUnique.mockResolvedValue(pending);
+      tx.order.findUnique.mockResolvedValue(pending);
+
+      const order = await service.executePendingOrder('order-stop');
+
+      // No cap at the stop price: a stop becomes a market order
+      expect(order).toMatchObject({ status: 'FILLED' });
+      expect(firstArg(tx.order.update).data.price).toEqual(D('190'));
+    });
+
+    it('reserves cash for an open BUY stop', async () => {
+      givenCash('2000');
+      tx.order.findMany.mockResolvedValue([
+        {
+          side: 'BUY',
+          type: 'STOP',
+          stockId: 'stock-aapl',
+          quantity: 10,
+          limitPrice: null,
+          stopPrice: D('185'),
+        },
+      ]);
+
+      // 2000 - 1850 reserved = 150 < 190
+      const order = await service.placeOrder('user-1', {
+        symbol: 'AAPL',
+        side: 'BUY',
+        type: 'MARKET',
+        quantity: 1,
+      });
+
+      expect(order.rejectReason).toBe(INSUFFICIENT_FUNDS);
+    });
+
+    it.each([
+      [
+        'a stopPrice on a LIMIT order',
+        { type: 'LIMIT', limitPrice: 180, stopPrice: 170 },
+      ],
+      [
+        'a limitPrice on a STOP order',
+        { type: 'STOP', stopPrice: 180, limitPrice: 170 },
+      ],
+      ['a stopPrice on a MARKET order', { type: 'MARKET', stopPrice: 180 }],
+    ] as const)('refuses %s (400)', async (_, fields) => {
+      await expect(
+        service.placeOrder('user-1', {
+          symbol: 'AAPL',
+          side: 'BUY',
+          quantity: 1,
+          ...fields,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });

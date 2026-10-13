@@ -35,6 +35,21 @@ export default () => ({
       10,
     ),
   },
+  // Simulated execution rules (src/orders/execution-rules.ts). All on by
+  // default, all off in tests, whose expected numbers assume plain fills;
+  // test/trading-rules.e2e-spec.ts turns them back on.
+  trading: {
+    feesEnabled:
+      (process.env.TRADING_FEES_ENABLED ??
+        String(process.env.NODE_ENV !== 'test')) === 'true',
+    slippageBps: parseFloat(
+      process.env.TRADING_SLIPPAGE_BPS ??
+        (process.env.NODE_ENV === 'test' ? '0' : '5'),
+    ),
+    enforceMarketHours:
+      (process.env.TRADING_MARKET_HOURS ??
+        String(process.env.NODE_ENV !== 'test')) === 'true',
+  },
   orders: {
     // How often waiting LIMIT orders are checked against the current price.
     // 0 = off: the default in tests, which run the matcher themselves.

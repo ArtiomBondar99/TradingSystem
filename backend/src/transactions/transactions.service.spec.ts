@@ -22,6 +22,7 @@ describe('TransactionsService', () => {
     quantity: 3,
     price: new Prisma.Decimal('190'),
     amount: new Prisma.Decimal('570'),
+    fee: new Prisma.Decimal('1'),
     createdAt: new Date(),
     stock: {
       id: 'stock-1',
@@ -56,6 +57,7 @@ describe('TransactionsService', () => {
       symbol: 'AAPL',
       price: '190.00',
       amount: '570.00',
+      fee: '1.00',
     });
     expect(page.items[0]).not.toHaveProperty('userId');
   });

@@ -62,9 +62,12 @@ enum OrderSide {
 
 // MARKET: now, at the current price. LIMIT: only at limitPrice or better;
 // waits as PENDING until the price gets there (or the user cancels it).
+// STOP: waits until the price crosses stopPrice, then executes at market
+// (e.g. a SELL stop below the price limits a loss).
 enum OrderType {
   MARKET
   LIMIT
+  STOP
 }
 
 enum OrderStatus {
@@ -84,8 +87,12 @@ model Order {
   quantity       Int
   // LIMIT only: buy at this price or lower / sell at this price or higher
   limitPrice     Decimal?    @map("limit_price") @db.Decimal(18, 2)
+  // STOP only: a BUY triggers at or above it, a SELL at or below it
+  stopPrice      Decimal?    @map("stop_price") @db.Decimal(18, 2)
   // Execution price; stays null until the order is FILLED
   price          Decimal?    @db.Decimal(18, 2)
+  // Simulated commission, charged when it fills (0 until then)
+  fee            Decimal     @default(0) @db.Decimal(18, 2)
   status         OrderStatus @default(PENDING)
   rejectReason   String?     @map("reject_reason")
   // Client-generated (Idempotency-Key header): a retried request with the
@@ -141,8 +148,10 @@ model Transaction {
   type      TransactionType
   quantity  Int
   price     Decimal         @db.Decimal(18, 2)
-  // price * quantity: the cash that left (BUY) or entered (SELL) the wallet
+  // price * quantity, before the fee
   amount    Decimal         @db.Decimal(18, 2)
+  // Commission. Cash moved: amount + fee on a BUY, amount - fee on a SELL
+  fee       Decimal         @default(0) @db.Decimal(18, 2)
   createdAt DateTime        @default(now()) @map("created_at")
 
   user  User  @relation(fields: [userId], references: [id])

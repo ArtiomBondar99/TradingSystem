@@ -33,7 +33,7 @@ export class CreateOrderDto {
   // Optional: without it, the order is a MARKET order
   @ApiPropertyOptional({ enum: OrderType, default: OrderType.MARKET })
   @IsOptional()
-  @IsEnum(OrderType, { message: 'type must be MARKET or LIMIT' })
+  @IsEnum(OrderType, { message: 'type must be MARKET, LIMIT or STOP' })
   type: OrderType = OrderType.MARKET;
 
   /** @example 10 */
@@ -56,4 +56,17 @@ export class CreateOrderDto {
   @Min(0.01, { message: 'limitPrice must be at least 0.01' })
   @Max(MAX_LIMIT_PRICE)
   limitPrice?: number;
+
+  /**
+   * STOP orders only: a BUY triggers when the price rises to it, a SELL when
+   * it falls to it (stop-loss); then it executes at market. @example 175
+   */
+  @ValidateIf((order: CreateOrderDto) => order.type === OrderType.STOP)
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'stopPrice must be a price with at most 2 decimals' },
+  )
+  @Min(0.01, { message: 'stopPrice must be at least 0.01' })
+  @Max(MAX_LIMIT_PRICE)
+  stopPrice?: number;
 }

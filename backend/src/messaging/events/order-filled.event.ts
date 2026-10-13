@@ -9,5 +9,7 @@ export type OrderFilledEvent = {
   quantity: number;
   price: string;
   amount: string;
+  // Commission: cash moved = amount + fee (BUY) or amount - fee (SELL)
+  fee: string;
   executedAt: string;
 };

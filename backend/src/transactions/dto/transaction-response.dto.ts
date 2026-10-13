@@ -9,7 +9,10 @@ export class TransactionResponseDto {
   quantity: number;
   // Money as strings such as "190.00", never JS numbers
   price: string;
+  // price * quantity
   amount: string;
+  // Commission: cash moved = amount + fee (BUY) or amount - fee (SELL)
+  fee: string;
   createdAt: Date;
 
   static fromEntity(transaction: TransactionWithStock): TransactionResponseDto {
@@ -21,6 +24,7 @@ export class TransactionResponseDto {
       quantity: transaction.quantity,
       price: transaction.price.toFixed(2),
       amount: transaction.amount.toFixed(2),
+      fee: transaction.fee.toFixed(2),
       createdAt: transaction.createdAt,
     };
   }

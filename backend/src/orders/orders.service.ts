@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { toCursorPage } from '../common/pagination.js';
 import { PrismaService } from '../database/prisma.service.js';
 import {
@@ -14,16 +15,25 @@ import {
   Prisma,
   type Order,
 } from '../generated/prisma/client.js';
+import { getMarketStatus } from '../market-data/market-calendar.js';
 import type { OrderFilledEvent } from '../messaging/events/order-filled.event.js';
 import { OrderEvents } from '../messaging/messaging.constants.js';
 import { StocksService } from '../stocks/stocks.service.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto.js';
 import { OrderPageDto, OrderResponseDto } from './dto/order-response.dto.js';
+import {
+  commission,
+  fillPrice,
+  isTriggered,
+  reservedCash,
+  type ExecutionRules,
+} from './execution-rules.js';
 import { OrdersRepository } from './orders.repository.js';
 
 export const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS';
 export const INSUFFICIENT_SHARES = 'INSUFFICIENT_SHARES';
+export const MARKET_CLOSED = 'MARKET_CLOSED';
 
 // Shape of the row returned by the raw SELECT ... FOR UPDATE below
 type LockedWallet = { id: string; cash_balance: Prisma.Decimal };
@@ -36,33 +46,26 @@ type Trade = {
   side: OrderSide;
   type: OrderType;
   quantity: number;
-  // Execution price: the current market price
-  price: Prisma.Decimal;
-  // price * quantity: the cash that leaves (BUY) or enters (SELL) the wallet
-  amount: Prisma.Decimal;
-  // LIMIT orders: the worst price the user accepts
+  // The last market price; the fill price is derived from it (slippage)
+  marketPrice: Prisma.Decimal;
+  // LIMIT: the worst price accepted. STOP: the trigger price.
   limitPrice: Prisma.Decimal | null;
+  stopPrice: Prisma.Decimal | null;
   idempotencyKey: string | null;
 };
 
-// What the user's open LIMIT orders have already promised: cash for BUYs,
-// shares for SELLs. Not available for new orders, or the same $10,000 could
-// back two orders and the wallet would go negative when both fill.
-type Reserved = { cash: Prisma.Decimal; shares: number };
+// What actually happens to the money when a trade fills
+type Execution = {
+  price: Prisma.Decimal;
+  // price * quantity
+  amount: Prisma.Decimal;
+  fee: Prisma.Decimal;
+};
 
-/**
- * A LIMIT order can execute when the market price is at its limit or better:
- * a BUY at or below it, a SELL at or above it.
- */
-export function isMarketable(
-  side: OrderSide,
-  marketPrice: Prisma.Decimal,
-  limitPrice: Prisma.Decimal,
-): boolean {
-  return side === OrderSide.BUY
-    ? marketPrice.lessThanOrEqualTo(limitPrice)
-    : marketPrice.greaterThanOrEqualTo(limitPrice);
-}
+// What the user's open LIMIT/STOP orders have already promised: cash for
+// BUYs, shares for SELLs. Not available for new orders, or the same $10,000
+// could back two orders and the wallet would go negative when both fill.
+type Reserved = { cash: Prisma.Decimal; shares: number };
 
 @Injectable()
 export class OrdersService {
@@ -70,9 +73,20 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly stocksService: StocksService,
     private readonly ordersRepository: OrdersRepository,
+    private readonly config: ConfigService,
   ) {}
 
-  // Order history: every order the user placed, FILLED and REJECTED alike
+  // Fees, slippage, market hours (see execution-rules.ts)
+  private get rules(): ExecutionRules {
+    return this.config.getOrThrow<ExecutionRules>('trading');
+  }
+
+  /** Can orders execute right now? (Always, if market hours aren't enforced) */
+  isMarketOpen(now = new Date()): boolean {
+    return !this.rules.enforceMarketHours || getMarketStatus(now).isOpen;
+  }
+
+  // Order history: every order the user placed, whatever its status
   // (GET /transactions shows only the executed ones)
   async getMyOrders(
     userId: string,
@@ -101,15 +115,15 @@ export class OrdersService {
     dto: CreateOrderDto,
     idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
-    if (dto.type === OrderType.MARKET && dto.limitPrice !== undefined) {
-      throw new BadRequestException(
-        'limitPrice is only for LIMIT orders: a MARKET order takes the current price',
-      );
-    }
+    this.checkPrices(dto);
 
     // Read outside the transaction on purpose: a market order executes at the
     // price seen when it was placed. Only the wallet needs to be locked.
     const stock = await this.stocksService.getBySymbolOrThrow(dto.symbol);
+
+    // The DTO allows at most 2 decimals, so toFixed(2) is exact
+    const toDecimal = (value?: number) =>
+      value === undefined ? null : new Prisma.Decimal(value.toFixed(2));
 
     const trade: Trade = {
       userId,
@@ -118,14 +132,9 @@ export class OrdersService {
       side: dto.side,
       type: dto.type,
       quantity: dto.quantity,
-      price: stock.currentPrice,
-      // Decimal math, never JS numbers: 0.1 + 0.2 !== 0.3
-      amount: stock.currentPrice.mul(dto.quantity),
-      // The DTO allows at most 2 decimals, so toFixed(2) is exact
-      limitPrice:
-        dto.type === OrderType.LIMIT && dto.limitPrice !== undefined
-          ? new Prisma.Decimal(dto.limitPrice.toFixed(2))
-          : null,
+      marketPrice: stock.currentPrice,
+      limitPrice: toDecimal(dto.limitPrice),
+      stopPrice: toDecimal(dto.stopPrice),
       idempotencyKey: idempotencyKey ?? null,
     };
 
@@ -140,19 +149,20 @@ export class OrdersService {
           return previous;
         }
 
-        // A LIMIT order whose price isn't reached yet waits in the book
-        if (
-          trade.limitPrice &&
-          !isMarketable(trade.side, trade.price, trade.limitPrice)
-        ) {
-          return this.rest(tx, wallet, trade);
+        const open = this.isMarketOpen();
+
+        if (trade.type === OrderType.MARKET) {
+          // A market order means "now": with no market, it can't execute
+          return open
+            ? this.execute(tx, wallet, trade)
+            : this.reject(tx, trade, MARKET_CLOSED);
         }
 
-        // MARKET, or a LIMIT the market already satisfies: execute now, at
-        // the market price (which is the limit or better)
-        return trade.side === OrderSide.BUY
-          ? this.buy(tx, wallet, trade)
-          : this.sell(tx, wallet, trade);
+        // LIMIT/STOP: execute now if the market is open and the price is
+        // already there; otherwise wait in the book (also for the next open)
+        return open && isTriggered(trade, trade.marketPrice)
+          ? this.execute(tx, wallet, trade)
+          : this.rest(tx, wallet, trade);
       })
       .catch((error: unknown) => {
         // Safety net: the unique index caught a duplicate key the check above
@@ -172,15 +182,20 @@ export class OrdersService {
   }
 
   /**
-   * Called by LimitOrderMatcher when the price reached an open LIMIT order.
-   * Returns the FILLED (or REJECTED) order, or null when there was nothing to
-   * do: already filled/cancelled meanwhile, or the price moved away again.
+   * Called by LimitOrderMatcher when the price reached an open LIMIT/STOP
+   * order. Returns the FILLED (or REJECTED) order, or null when there was
+   * nothing to do: already filled/cancelled meanwhile, the price moved away
+   * again, or the market is closed.
    */
   async executePendingOrder(orderId: string): Promise<Order | null> {
     const pending = await this.prisma.order.findUnique({
       where: { id: orderId },
     });
-    if (!pending || pending.status !== OrderStatus.PENDING) {
+    if (
+      !pending ||
+      pending.status !== OrderStatus.PENDING ||
+      !this.isMarketOpen()
+    ) {
       return null;
     }
 
@@ -194,17 +209,13 @@ export class OrdersService {
         where: { id: orderId },
         include: { stock: true },
       });
-      if (
-        !order ||
-        order.status !== OrderStatus.PENDING ||
-        order.limitPrice === null
-      ) {
+      if (!order || order.status !== OrderStatus.PENDING) {
         return null;
       }
 
       // The price now, read inside the transaction, not the one the matcher saw
-      const price = order.stock.currentPrice;
-      if (!isMarketable(order.side, price, order.limitPrice)) {
+      const marketPrice = order.stock.currentPrice;
+      if (!isTriggered(order, marketPrice)) {
         return null;
       }
 
@@ -215,15 +226,13 @@ export class OrdersService {
         side: order.side,
         type: order.type,
         quantity: order.quantity,
-        price,
-        amount: price.mul(order.quantity),
+        marketPrice,
         limitPrice: order.limitPrice,
+        stopPrice: order.stopPrice,
         idempotencyKey: order.idempotencyKey,
       };
 
-      return order.side === OrderSide.BUY
-        ? this.buy(tx, wallet, trade, order.id)
-        : this.sell(tx, wallet, trade, order.id);
+      return this.execute(tx, wallet, trade, order.id);
     });
   }
 
@@ -259,6 +268,30 @@ export class OrdersService {
     });
   }
 
+  // Each order type takes exactly its own price field
+  private checkPrices(dto: CreateOrderDto): void {
+    const has = {
+      limit: dto.limitPrice !== undefined,
+      stop: dto.stopPrice !== undefined,
+    };
+
+    if (dto.type === OrderType.MARKET && (has.limit || has.stop)) {
+      throw new BadRequestException(
+        'A MARKET order takes the current price: send no limitPrice or stopPrice',
+      );
+    }
+    if (dto.type === OrderType.LIMIT && has.stop) {
+      throw new BadRequestException(
+        'A LIMIT order takes a limitPrice, not a stopPrice',
+      );
+    }
+    if (dto.type === OrderType.STOP && has.limit) {
+      throw new BadRequestException(
+        'A STOP order takes a stopPrice, not a limitPrice',
+      );
+    }
+  }
+
   // Same key = same request: return the saved order, don't trade again.
   // Same key with a different body is a client bug, so we refuse it.
   private async findByIdempotencyKey(
@@ -282,17 +315,13 @@ export class OrdersService {
       return null;
     }
 
-    // Decimals compare with equals(), not ===; both missing also counts as same
-    const sameLimit =
-      previous.limitPrice && trade.limitPrice
-        ? previous.limitPrice.equals(trade.limitPrice)
-        : !previous.limitPrice && !trade.limitPrice;
     const sameRequest =
       previous.stockId === trade.stockId &&
       previous.side === trade.side &&
       previous.type === trade.type &&
       previous.quantity === trade.quantity &&
-      sameLimit;
+      samePrice(previous.limitPrice, trade.limitPrice) &&
+      samePrice(previous.stopPrice, trade.stopPrice);
 
     if (!sameRequest) {
       throw new UnprocessableEntityException(
@@ -335,21 +364,24 @@ export class OrdersService {
       where: {
         userId: trade.userId,
         status: OrderStatus.PENDING,
-        type: OrderType.LIMIT,
         ...(excludeOrderId && { id: { not: excludeOrderId } }),
       },
-      select: { side: true, stockId: true, quantity: true, limitPrice: true },
+      select: {
+        side: true,
+        type: true,
+        stockId: true,
+        quantity: true,
+        limitPrice: true,
+        stopPrice: true,
+      },
     });
 
     let cash = new Prisma.Decimal(0);
     let shares = 0;
     for (const order of open) {
-      if (order.side === OrderSide.BUY && order.limitPrice) {
-        cash = cash.add(order.limitPrice.mul(order.quantity));
-      } else if (
-        order.side === OrderSide.SELL &&
-        order.stockId === trade.stockId
-      ) {
+      if (order.side === OrderSide.BUY) {
+        cash = cash.add(reservedCash(this.rules, order));
+      } else if (order.stockId === trade.stockId) {
         shares += order.quantity;
       }
     }
@@ -357,9 +389,9 @@ export class OrdersService {
     return { cash, shares };
   }
 
-  // A LIMIT order that can't execute yet: check that the cash/shares exist
-  // (and aren't promised to another order), then save it as PENDING. Nothing
-  // moves until it fills.
+  // A LIMIT/STOP order that can't execute yet: check that the cash/shares
+  // exist (and aren't promised to another order), then save it as PENDING.
+  // Nothing moves until it fills.
   private async rest(
     tx: Prisma.TransactionClient,
     wallet: LockedWallet,
@@ -368,8 +400,7 @@ export class OrdersService {
     const reserved = await this.reserved(tx, trade);
 
     if (trade.side === OrderSide.BUY) {
-      // Worst case: it fills exactly at the limit
-      const needed = (trade.limitPrice as Prisma.Decimal).mul(trade.quantity);
+      const needed = reservedCash(this.rules, trade);
       if (wallet.cash_balance.sub(reserved.cash).lessThan(needed)) {
         return this.reject(tx, trade, INSUFFICIENT_FUNDS);
       }
@@ -381,39 +412,65 @@ export class OrdersService {
     }
 
     return tx.order.create({
-      data: {
-        ...this.orderFields(trade),
-        status: OrderStatus.PENDING,
-      },
+      data: { ...this.orderFields(trade), status: OrderStatus.PENDING },
     });
+  }
+
+  // The fill: price with slippage, commission, then BUY or SELL
+  private execute(
+    tx: Prisma.TransactionClient,
+    wallet: LockedWallet,
+    trade: Trade,
+    existingOrderId?: string,
+  ): Promise<Order> {
+    const price = fillPrice(
+      this.rules,
+      trade.side,
+      trade.marketPrice,
+      trade.limitPrice,
+    );
+    // Decimal math, never JS numbers: 0.1 + 0.2 !== 0.3
+    const amount = price.mul(trade.quantity);
+    const execution: Execution = {
+      price,
+      amount,
+      fee: commission(this.rules, trade.quantity, amount),
+    };
+
+    return trade.side === OrderSide.BUY
+      ? this.buy(tx, wallet, trade, execution, existingOrderId)
+      : this.sell(tx, wallet, trade, execution, existingOrderId);
   }
 
   private async buy(
     tx: Prisma.TransactionClient,
     wallet: LockedWallet,
     trade: Trade,
+    execution: Execution,
     existingOrderId?: string,
   ): Promise<Order> {
     const reserved = await this.reserved(tx, trade, existingOrderId);
+    const cost = execution.amount.add(execution.fee);
 
-    if (wallet.cash_balance.sub(reserved.cash).lessThan(trade.amount)) {
+    if (wallet.cash_balance.sub(reserved.cash).lessThan(cost)) {
       return this.reject(tx, trade, INSUFFICIENT_FUNDS, existingOrderId);
     }
 
     await tx.wallet.update({
       where: { id: wallet.id },
-      data: { cashBalance: { decrement: trade.amount } },
+      data: { cashBalance: { decrement: cost } },
     });
 
-    await this.addToPosition(tx, trade);
+    await this.addToPosition(tx, trade, execution.price);
 
-    return this.fill(tx, trade, existingOrderId);
+    return this.fill(tx, trade, execution, existingOrderId);
   }
 
   private async sell(
     tx: Prisma.TransactionClient,
     wallet: LockedWallet,
     trade: Trade,
+    execution: Execution,
     existingOrderId?: string,
   ): Promise<Order> {
     // Safe to read without its own lock: we already hold the wallet lock
@@ -430,7 +487,7 @@ export class OrdersService {
 
     await tx.wallet.update({
       where: { id: wallet.id },
-      data: { cashBalance: { increment: trade.amount } },
+      data: { cashBalance: { increment: execution.amount.sub(execution.fee) } },
     });
 
     const remaining = position.quantity - trade.quantity;
@@ -446,7 +503,7 @@ export class OrdersService {
       });
     }
 
-    return this.fill(tx, trade, existingOrderId);
+    return this.fill(tx, trade, execution, existingOrderId);
   }
 
   private async sharesOwned(
@@ -464,8 +521,9 @@ export class OrdersService {
   private async addToPosition(
     tx: Prisma.TransactionClient,
     trade: Trade,
+    price: Prisma.Decimal,
   ): Promise<void> {
-    const { userId, stockId, quantity, price } = trade;
+    const { userId, stockId, quantity } = trade;
 
     const position = await tx.position.findUnique({
       where: { userId_stockId: { userId, stockId } },
@@ -501,6 +559,7 @@ export class OrdersService {
       type: trade.type,
       quantity: trade.quantity,
       limitPrice: trade.limitPrice,
+      stopPrice: trade.stopPrice,
       idempotencyKey: trade.idempotencyKey,
     };
   }
@@ -521,14 +580,16 @@ export class OrdersService {
   }
 
   // Records a successful execution: the FILLED order plus its audit-trail
-  // row. A waiting LIMIT order is updated; anything else is created FILLED.
+  // row. A waiting order is updated; anything else is created FILLED.
   private async fill(
     tx: Prisma.TransactionClient,
     trade: Trade,
+    execution: Execution,
     existingOrderId?: string,
   ): Promise<Order> {
     const data = {
-      price: trade.price,
+      price: execution.price,
+      fee: execution.fee,
       status: OrderStatus.FILLED,
       executedAt: new Date(),
     };
@@ -547,8 +608,9 @@ export class OrdersService {
         // OrderSide and TransactionType share the same values: BUY | SELL
         type: trade.side,
         quantity: trade.quantity,
-        price: trade.price,
-        amount: trade.amount,
+        price: execution.price,
+        amount: execution.amount,
+        fee: execution.fee,
       },
     });
 
@@ -561,8 +623,9 @@ export class OrdersService {
       symbol: trade.symbol,
       side: trade.side,
       quantity: trade.quantity,
-      price: trade.price.toFixed(2),
-      amount: trade.amount.toFixed(2),
+      price: execution.price.toFixed(2),
+      amount: execution.amount.toFixed(2),
+      fee: execution.fee.toFixed(2),
       executedAt: (order.executedAt ?? new Date()).toISOString(),
     };
     await tx.outboxEvent.create({
@@ -571,4 +634,12 @@ export class OrdersService {
 
     return order;
   }
+}
+
+// Decimals compare with equals(), not ===; both missing also counts as same
+function samePrice(
+  a: Prisma.Decimal | null | undefined,
+  b: Prisma.Decimal | null | undefined,
+): boolean {
+  return a && b ? a.equals(b) : !a && !b;
 }
