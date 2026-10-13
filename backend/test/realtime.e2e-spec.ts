@@ -3,13 +3,13 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import { WsAdapter } from '@nestjs/platform-ws';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { WebSocket } from 'ws';
 import { AppModule } from './../src/app.module.js';
 import type { Quote } from './../src/market-data/market-data.types.js';
 import { PriceFeed } from './../src/market-data/price-feed.service.js';
+import { createTestApp } from './create-test-app.js';
 
 type Message = { event: string; data: any };
 
@@ -25,9 +25,7 @@ describe('Realtime WebSocket (e2e)', () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    // main.ts does this for the real server; tests don't run main.ts
-    app.useWebSocketAdapter(new WsAdapter(app));
+    app = createTestApp(moduleFixture);
     await app.listen(0);
     const { port } = (
       app.getHttpServer() as unknown as Server
@@ -50,7 +48,10 @@ describe('Realtime WebSocket (e2e)', () => {
     const socket = new WebSocket(url);
     sockets.push(socket);
     const received: Message[] = [];
-    socket.on('message', (raw) => received.push(JSON.parse(raw.toString())));
+    // ws delivers text frames as a Buffer (binaryType "nodebuffer", the default)
+    socket.on('message', (raw) =>
+      received.push(JSON.parse((raw as Buffer).toString('utf8'))),
+    );
     await new Promise((resolve, reject) => {
       socket.once('open', resolve);
       socket.once('error', reject);

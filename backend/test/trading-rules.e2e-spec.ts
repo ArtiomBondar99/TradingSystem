@@ -5,6 +5,7 @@ import request from 'supertest';
 import { App } from 'supertest/types.js';
 import type { PrismaService } from './../src/database/prisma.service.js';
 import type { LimitOrderMatcher } from './../src/orders/limit-order-matcher.service.js';
+import { createTestApp } from './create-test-app.js';
 
 // Fees and slippage are off in tests (the other order tests expect plain
 // fills), so this file turns them on. Like rate-limit.e2e-spec.ts, the env
@@ -32,7 +33,7 @@ describe('Trading rules: fees, slippage, stop orders (e2e)', () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
+    app = createTestApp(moduleFixture);
     await app.listen(0);
     prisma = app.get(PrismaService);
     matcher = app.get(LimitOrderMatcher);

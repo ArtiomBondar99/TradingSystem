@@ -7,6 +7,7 @@ import { AppModule } from './../src/app.module.js';
 import { PrismaService } from './../src/database/prisma.service.js';
 import { Prisma } from './../src/generated/prisma/client.js';
 import { LimitOrderMatcher } from './../src/orders/limit-order-matcher.service.js';
+import { createTestApp } from './create-test-app.js';
 
 const D = (value: string | number) => new Prisma.Decimal(value);
 
@@ -25,7 +26,7 @@ describe('Limit orders (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = createTestApp(moduleFixture);
     await app.listen(0);
     prisma = app.get(PrismaService);
     matcher = app.get(LimitOrderMatcher);

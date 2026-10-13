@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
+import { createTestApp } from './create-test-app.js';
 
 // Rate limiting is off in tests (they create many users per minute), so this
 // file turns it back on. It must be set BEFORE the app's config is loaded,
@@ -19,7 +20,7 @@ describe('Rate limiting (e2e)', () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
+    app = createTestApp(moduleFixture);
     await app.init();
 
     // The connection opens asynchronously. Until it's ready the guard fails

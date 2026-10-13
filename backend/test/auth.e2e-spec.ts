@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
+import { createTestApp } from './create-test-app.js';
 
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
@@ -13,7 +14,7 @@ describe('Auth (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = createTestApp(moduleFixture);
     await app.init();
   });
 

@@ -5,6 +5,7 @@ import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
 import { PrismaService } from './../src/database/prisma.service.js';
+import { createTestApp } from './create-test-app.js';
 
 // Requires the seed and a running RabbitMQ: docker compose up -d rabbitmq
 describe('Order events via the outbox (e2e)', () => {
@@ -17,7 +18,7 @@ describe('Order events via the outbox (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = createTestApp(moduleFixture);
     await app.init();
     prisma = app.get(PrismaService);
 

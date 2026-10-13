@@ -5,6 +5,7 @@ import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
 import { Prisma } from './../src/generated/prisma/client.js';
+import { createTestApp } from './create-test-app.js';
 
 const STARTING_CASH = new Prisma.Decimal('100000');
 const PARALLEL_REQUESTS = 10;
@@ -22,7 +23,7 @@ describe('Orders (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = createTestApp(moduleFixture);
     // Listen once up front: parallel supertest calls on a server that isn't
     // listening yet would each try to start it
     await app.listen(0);
