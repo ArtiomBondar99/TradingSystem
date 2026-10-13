@@ -52,6 +52,40 @@ export type Portfolio = {
   positions: Position[];
 };
 
+// ----- Orders (backend/src/orders) -----
+
+export type OrderSide = 'BUY' | 'SELL';
+export type OrderType = 'MARKET' | 'LIMIT';
+// PENDING = a LIMIT order waiting for its price
+export type OrderStatus = 'PENDING' | 'FILLED' | 'REJECTED' | 'CANCELLED';
+
+export type Order = {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  quantity: number;
+  limitPrice: string | null;
+  // Execution price, once FILLED
+  price: string | null;
+  status: OrderStatus;
+  rejectReason: string | null;
+  createdAt: string;
+  executedAt: string | null;
+};
+
+export type OrderPage = { items: Order[]; nextCursor: string | null };
+
+// No price for a MARKET order: the server decides it. The client never
+// tells the server what something costs.
+export type PlaceOrderRequest = {
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  quantity: number;
+  limitPrice?: number;
+};
+
 // ----- Market data (backend/src/market-data) -----
 // Prices here are numbers: they feed charts and indicators, not balances.
 

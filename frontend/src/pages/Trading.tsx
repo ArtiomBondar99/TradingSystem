@@ -4,6 +4,8 @@ import { buildChartLayers } from '../components/charts/indicatorLayers';
 import { PriceChart, type ChartType } from '../components/charts/PriceChart';
 import { ChartToolbar } from '../components/charts/ChartToolbar';
 import { MarketList } from '../components/trading/MarketList';
+import { OrderPanel } from '../components/trading/OrderPanel';
+import { OrdersList } from '../components/trading/OrdersList';
 import { QuoteHeader } from '../components/trading/QuoteHeader';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Panel } from '../components/ui/Panel';
@@ -128,10 +130,10 @@ function TradingTerminal({ symbol }: { symbol: string }) {
         </div>
       </section>
 
-      <Panel title="Order" className="order-3">
-        <div className="p-4 text-sm text-muted">
-          Buy / sell panel coming in Phase 4
-        </div>
+      <Panel title={`Trade ${symbol}`} className="order-3 self-start">
+        {/* key: a new stock starts with a fresh form */}
+        <OrderPanel key={symbol} symbol={symbol} quote={quote.data} />
+        <OrdersList />
       </Panel>
     </div>
   );
