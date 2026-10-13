@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router';
+import { buildChartLayers } from '../components/charts/indicatorLayers';
 import { PriceChart, type ChartType } from '../components/charts/PriceChart';
 import { ChartToolbar } from '../components/charts/ChartToolbar';
 import { MarketList } from '../components/trading/MarketList';
@@ -11,6 +12,8 @@ import {
   useMarketDataSource,
   useQuote,
 } from '../hooks/useMarketData';
+import { useIndicators } from '../hooks/useIndicators';
+import { useIndicatorSettings } from '../hooks/useIndicatorSettings';
 import { useStocks } from '../hooks/useStocks';
 import { TIMEFRAMES, type Timeframe } from '../services/types';
 
@@ -52,6 +55,33 @@ function TradingTerminal({ symbol }: { symbol: string }) {
   const name = stocks.data?.find((stock) => stock.symbol === symbol)?.name;
   const simulated = candles.data?.source.kind === 'SIMULATED';
 
+  const settings = useIndicatorSettings((state) => state.settings);
+  const indicators = useIndicators(symbol, timeframe, settings);
+  const { sma, ema, bollinger, vwap, pivots, levels, rsi, macd } = indicators;
+  // Rebuilt only when an indicator's data or a setting changes, not on every
+  // render (e.g. each 5s quote refresh), so the chart isn't redrawn for nothing
+  const layers = useMemo(
+    () => buildChartLayers(settings, indicators),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the .data fields are what matters
+    [
+      settings,
+      sma.data,
+      ema.data,
+      bollinger.data,
+      vwap.data,
+      pivots.data,
+      levels.data,
+      rsi.data,
+      macd.data,
+    ],
+  );
+  const indicatorError = Object.entries(indicators).find(
+    ([id, query]) =>
+      settings[id as keyof typeof settings].enabled && query.isError,
+  )?.[1].error;
+  // Each indicator pane (RSI, MACD) adds height below the price pane
+  const chartHeight = 420 + layers.panes.length * 140;
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr_300px]">
       <Panel title="Markets" className="order-2 lg:order-1">
@@ -68,7 +98,13 @@ function TradingTerminal({ symbol }: { symbol: string }) {
           onChartTypeChange={setChartType}
         />
 
-        <div className="relative h-[420px] lg:h-[520px]">
+        {indicatorError !== undefined && (
+          <div className="px-4 pt-2">
+            <ErrorMessage error={indicatorError} />
+          </div>
+        )}
+
+        <div className="relative" style={{ height: chartHeight }}>
           {candles.isError ? (
             <div className="p-4">
               <ErrorMessage error={candles.error} />
@@ -80,6 +116,8 @@ function TradingTerminal({ symbol }: { symbol: string }) {
               chartType={chartType}
               resetKey={`${symbol}:${timeframe}`}
               watermark={simulated ? 'SIMULATED DATA' : undefined}
+              showVolume={settings.volume.enabled}
+              layers={layers}
             />
           )}
           {candles.isPending && (

@@ -6,15 +6,18 @@ import {
   CrosshairMode,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   TickMarkType,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { useEffect, useRef, useState } from 'react';
-import type { Candle, Timeframe } from '../../services/types';
-import { ChartLegend } from './ChartLegend';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Candle, IndicatorPoint, Timeframe } from '../../services/types';
+import { ChartLegend, type LegendValue } from './ChartLegend';
+import type { ChartLayers } from './indicatorLayers';
 
 export type ChartType = 'candles' | 'line';
 
@@ -27,6 +30,9 @@ type Props = {
   resetKey: string;
   // Big faint text across the chart, e.g. "SIMULATED DATA"
   watermark?: string;
+  showVolume?: boolean;
+  // Indicators, already turned into lines / levels / panes
+  layers?: ChartLayers;
 };
 
 // Same palette as the Tailwind theme (index.css)
@@ -43,6 +49,10 @@ const COLORS = {
 
 // How many of the most recent bars are visible after a reset
 const VISIBLE_BARS = 120;
+// Height of the price pane relative to each indicator pane (RSI, MACD)
+const MAIN_PANE_STRETCH = 3;
+
+const EMPTY_LAYERS: ChartLayers = { overlays: [], levels: [], panes: [] };
 
 type ChartParts = {
   chart: IChartApi;
@@ -50,6 +60,15 @@ type ChartParts = {
   line: ISeriesApi<'Line'>;
   volume: ISeriesApi<'Histogram'>;
 };
+
+type PaneState = {
+  // Which panes/series exist; when it changes, the panes are rebuilt
+  layout: string;
+  series: Map<string, ISeriesApi<'Line'> | ISeriesApi<'Histogram'>>;
+};
+
+const toLineData = (points: IndicatorPoint[]) =>
+  points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
 
 /**
  * TradingView Lightweight Charts wrapped in React. The library draws on a
@@ -63,12 +82,18 @@ export function PriceChart({
   chartType,
   resetKey,
   watermark,
+  showVolume = true,
+  layers = EMPTY_LAYERS,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const partsRef = useRef<ChartParts | null>(null);
   const fittedKeyRef = useRef<string | null>(null);
-  const candlesByTimeRef = useRef(new Map<number, Candle>());
-  const [hovered, setHovered] = useState<Candle | null>(null);
+  const overlaysRef = useRef(new Map<string, ISeriesApi<'Line'>>());
+  const priceLinesRef = useRef<
+    { series: ISeriesApi<'Candlestick' | 'Line'>; line: IPriceLine }[]
+  >([]);
+  const panesRef = useRef<PaneState>({ layout: '', series: new Map() });
+  const [hoveredTime, setHoveredTime] = useState<number | null>(null);
 
   // 1. Create the chart once, destroy it on unmount
   useEffect(() => {
@@ -79,6 +104,7 @@ export function PriceChart({
         background: { type: ColorType.Solid, color: COLORS.background },
         textColor: COLORS.text,
         attributionLogo: false,
+        panes: { separatorColor: COLORS.grid },
       },
       grid: {
         vertLines: { color: COLORS.grid },
@@ -118,8 +144,7 @@ export function PriceChart({
 
     // The legend shows the bar under the crosshair (or the latest one)
     chart.subscribeCrosshairMove((param) => {
-      const time = param.time as number | undefined;
-      setHovered(time ? (candlesByTimeRef.current.get(time) ?? null) : null);
+      setHoveredTime((param.time as number | undefined) ?? null);
     });
 
     partsRef.current = {
@@ -129,9 +154,15 @@ export function PriceChart({
       volume: volumeSeries,
     };
 
+    const overlays = overlaysRef.current;
+    const panes = panesRef.current;
     return () => {
-      chart.remove();
+      // Everything below dies with the chart; forget it before removing
       partsRef.current = null;
+      overlays.clear();
+      panes.series.clear();
+      priceLinesRef.current = [];
+      chart.remove();
     };
   }, []);
 
@@ -147,7 +178,10 @@ export function PriceChart({
         { text: watermark, color: 'rgba(247, 166, 0, 0.12)', fontSize: 40 },
       ],
     });
-    return () => plugin.detach();
+    // Skip if the chart itself is already gone (unmount)
+    return () => {
+      if (partsRef.current) plugin.detach();
+    };
   }, [watermark]);
 
   // 3. Time labels: New York time for intraday bars, the plain date for
@@ -213,7 +247,6 @@ export function PriceChart({
     const parts = partsRef.current;
     if (!parts) return;
 
-    candlesByTimeRef.current = new Map(candles.map((c) => [c.time, c]));
     const time = (c: Candle) => c.time as UTCTimestamp;
 
     parts.candles.setData(
@@ -251,12 +284,189 @@ export function PriceChart({
     parts?.line.applyOptions({ visible: chartType === 'line' });
   }, [chartType]);
 
-  const legendCandle = hovered ?? candles.at(-1) ?? null;
+  // 6. Volume on/off
+  useEffect(() => {
+    partsRef.current?.volume.applyOptions({ visible: showVolume });
+  }, [showVolume]);
+
+  // 7. Overlay lines on the price pane (SMA, EMA, Bollinger, VWAP):
+  // remove the ones switched off, add new ones, update the rest
+  useEffect(() => {
+    const parts = partsRef.current;
+    if (!parts) return;
+    const existing = overlaysRef.current;
+    const wanted = new Set(layers.overlays.map((layer) => layer.id));
+
+    for (const [id, series] of existing) {
+      if (!wanted.has(id)) {
+        parts.chart.removeSeries(series);
+        existing.delete(id);
+      }
+    }
+
+    for (const layer of layers.overlays) {
+      let series = existing.get(layer.id);
+      if (!series) {
+        series = parts.chart.addSeries(LineSeries, {
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        existing.set(layer.id, series);
+      }
+      series.applyOptions({
+        color: layer.color,
+        lineStyle: layer.dashed ? LineStyle.Dashed : LineStyle.Solid,
+      });
+      series.setData(toLineData(layer.points));
+    }
+  }, [layers.overlays]);
+
+  // 8. Horizontal levels (pivots, support/resistance) on the visible main
+  // series. Few and cheap: simply redrawn from scratch.
+  useEffect(() => {
+    const parts = partsRef.current;
+    if (!parts) return;
+
+    for (const { series, line } of priceLinesRef.current) {
+      series.removePriceLine(line);
+    }
+    const target = chartType === 'candles' ? parts.candles : parts.line;
+    priceLinesRef.current = layers.levels.map((level) => ({
+      series: target,
+      line: target.createPriceLine({
+        price: level.price,
+        color: level.color,
+        title: level.title,
+        lineWidth: 1,
+        lineStyle: level.dashed ? LineStyle.Dashed : LineStyle.Solid,
+        axisLabelVisible: true,
+      }),
+    }));
+  }, [layers.levels, chartType]);
+
+  // 9. Indicator panes below the price (RSI, MACD). Pane indexes shift when
+  // one is removed, so if the set of panes changes we rebuild them all;
+  // if only the data changed we just update it.
+  useEffect(() => {
+    const parts = partsRef.current;
+    if (!parts) return;
+    const state = panesRef.current;
+    const layout = layers.panes
+      .map((pane) =>
+        [
+          pane.id,
+          ...pane.lines.map((l) => l.id),
+          ...pane.histograms.map((h) => h.id),
+        ].join(','),
+      )
+      .join('|');
+
+    if (layout !== state.layout) {
+      // Removing a pane's last series removes the (now empty) pane too
+      for (const series of state.series.values()) {
+        parts.chart.removeSeries(series);
+      }
+      state.series.clear();
+
+      layers.panes.forEach((pane, i) => {
+        const paneIndex = i + 1;
+        for (const histogram of pane.histograms) {
+          state.series.set(
+            histogram.id,
+            parts.chart.addSeries(
+              HistogramSeries,
+              { priceLineVisible: false, lastValueVisible: false },
+              paneIndex,
+            ),
+          );
+        }
+        pane.lines.forEach((line, j) => {
+          const series = parts.chart.addSeries(
+            LineSeries,
+            {
+              color: line.color,
+              lineWidth: 1,
+              priceLineVisible: false,
+              crosshairMarkerVisible: false,
+            },
+            paneIndex,
+          );
+          // Guides (RSI 30/70, MACD 0) hang off the pane's first line
+          if (j === 0) {
+            for (const guide of pane.guides) {
+              series.createPriceLine({
+                price: guide.price,
+                color: guide.color,
+                lineWidth: 1,
+                lineStyle: LineStyle.Dotted,
+                axisLabelVisible: false,
+              });
+            }
+          }
+          state.series.set(line.id, series);
+        });
+      });
+
+      const panes = parts.chart.panes();
+      panes[0]?.setStretchFactor(panes.length > 1 ? MAIN_PANE_STRETCH : 1);
+      state.layout = layout;
+    }
+
+    for (const pane of layers.panes) {
+      for (const line of pane.lines) {
+        state.series.get(line.id)?.setData(toLineData(line.points));
+      }
+      for (const histogram of pane.histograms) {
+        state.series.get(histogram.id)?.setData(
+          histogram.points.map((p) => ({
+            time: p.time as UTCTimestamp,
+            value: p.value,
+            color: p.value >= 0 ? histogram.upColor : histogram.downColor,
+          })),
+        );
+      }
+    }
+  }, [layers.panes]);
+
+  // Legend: the bar and indicator values under the crosshair, else the latest
+  const candlesByTime = useMemo(
+    () => new Map(candles.map((c) => [c.time, c])),
+    [candles],
+  );
+  const legendCandle =
+    (hoveredTime !== null ? candlesByTime.get(hoveredTime) : undefined) ??
+    candles.at(-1) ??
+    null;
+  const legendValues: LegendValue[] = [
+    ...layers.overlays.filter(
+      (layer) => !layer.id.startsWith('bb-') || layer.id === 'bb-middle',
+    ),
+    ...layers.panes.flatMap((pane) => pane.lines),
+  ].map((layer) => ({
+    label: layer.label,
+    color: layer.color,
+    value: valueAt(layer.points, legendCandle?.time),
+  }));
 
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="absolute inset-0" />
-      {legendCandle && <ChartLegend candle={legendCandle} />}
+      {legendCandle && (
+        <ChartLegend candle={legendCandle} indicators={legendValues} />
+      )}
     </div>
   );
+}
+
+// The point at `time`, else the last one
+function valueAt(
+  points: IndicatorPoint[],
+  time: number | undefined,
+): number | null {
+  const point =
+    (time !== undefined && points.find((p) => p.time === time)) ||
+    points.at(-1);
+  return point ? point.value : null;
 }

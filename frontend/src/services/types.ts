@@ -114,6 +114,45 @@ export type MarketStatus = {
 
 export type SymbolSearchResult = { symbol: string; name: string };
 
+// ----- Indicators (backend/src/indicators) -----
+
+export type IndicatorPoint = { time: number; value: number };
+
+type IndicatorResponseBase = {
+  symbol: string;
+  timeframe: Timeframe;
+  source: DataSource;
+};
+
+export type LineIndicatorResponse = IndicatorResponseBase & {
+  points: IndicatorPoint[];
+};
+
+export type MacdResponse = IndicatorResponseBase & {
+  macd: IndicatorPoint[];
+  signal: IndicatorPoint[];
+  histogram: IndicatorPoint[];
+};
+
+export type BollingerResponse = IndicatorResponseBase & {
+  upper: IndicatorPoint[];
+  middle: IndicatorPoint[];
+  lower: IndicatorPoint[];
+};
+
+export type PivotsResponse = IndicatorResponseBase & {
+  basedOn: 'day' | 'week' | 'month';
+  periodStart: number;
+  levels: Record<'pivot' | 'r1' | 'r2' | 'r3' | 's1' | 's2' | 's3', number>;
+};
+
+export type PriceLevel = { price: number; touches: number; lastTouch: number };
+
+export type LevelsResponse = IndicatorResponseBase & {
+  supports: PriceLevel[];
+  resistances: PriceLevel[];
+};
+
 // Every error response has this shape (backend AllExceptionsFilter)
 export type ApiErrorBody = {
   statusCode: number;
