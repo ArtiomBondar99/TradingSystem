@@ -29,7 +29,9 @@ export const useRealtimeStore = create<RealtimeState>()((set) => ({
     })),
   addFill: (fill) =>
     set((state) =>
-      state.seenFills.has(fill.orderId) ? state : { fills: [...state.fills, fill] },
+      state.seenFills.has(fill.orderId)
+        ? state
+        : { fills: [...state.fills, fill] },
     ),
   dismissFill: (orderId) =>
     set((state) => ({

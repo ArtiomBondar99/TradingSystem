@@ -38,6 +38,8 @@ type Props = {
   layers?: ChartLayers;
   // The user's executed trades in this stock: arrows on their bars
   trades?: TradeMarker[];
+  // The latest pushed price (WebSocket): moves the last bar between refreshes
+  livePrice?: { price: number; time: number };
 };
 
 export type TradeMarker = {
@@ -61,6 +63,18 @@ const COLORS = {
 
 // How many of the most recent bars are visible after a reset
 const VISIBLE_BARS = 120;
+
+// How long one bar lasts: a live price after that belongs to a new bar
+const BAR_SECONDS: Record<Timeframe, number> = {
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '30m': 1_800,
+  '1h': 3_600,
+  '4h': 14_400,
+  '1D': 86_400,
+  '1W': 604_800,
+};
 // Height of the price pane relative to each indicator pane (RSI, MACD)
 const MAIN_PANE_STRETCH = 3;
 
@@ -98,6 +112,7 @@ export function PriceChart({
   showVolume = true,
   layers = EMPTY_LAYERS,
   trades = NO_TRADES,
+  livePrice,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const partsRef = useRef<ChartParts | null>(null);
@@ -109,6 +124,8 @@ export function PriceChart({
   const panesRef = useRef<PaneState>({ layout: '', series: new Map() });
   // One markers plugin per main series: candles and line
   const markersRef = useRef<ISeriesMarkersPluginApi<Time>[]>([]);
+  // The last bar as live prices have updated it since the last fetch
+  const liveBarRef = useRef<Candle | null>(null);
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
 
   // 1. Create the chart once, destroy it on unmount
@@ -289,6 +306,9 @@ export function PriceChart({
       })),
     );
 
+    // Fresh bars from the server: live updates start again from the last one
+    liveBarRef.current = candles.at(-1) ?? null;
+
     // Re-centre only for a new symbol/timeframe, not for a refresh
     if (candles.length > 0 && fittedKeyRef.current !== resetKey) {
       parts.chart.timeScale().setVisibleLogicalRange({
@@ -305,6 +325,38 @@ export function PriceChart({
     parts?.candles.applyOptions({ visible: chartType === 'candles' });
     parts?.line.applyOptions({ visible: chartType === 'line' });
   }, [chartType]);
+
+  // Live price: update the last bar in place (series.update, no full redraw).
+  // Only while the price still falls inside that bar; a price after it
+  // belongs to a new bar, which arrives with the next candles refresh.
+  useEffect(() => {
+    const parts = partsRef.current;
+    const bar = liveBarRef.current;
+    if (!parts || !bar || !livePrice) return;
+    if (
+      livePrice.time < bar.time ||
+      livePrice.time >= bar.time + BAR_SECONDS[timeframe]
+    ) {
+      return;
+    }
+
+    const next: Candle = {
+      ...bar,
+      high: Math.max(bar.high, livePrice.price),
+      low: Math.min(bar.low, livePrice.price),
+      close: livePrice.price,
+    };
+    liveBarRef.current = next;
+    const time = bar.time as UTCTimestamp;
+    parts.candles.update({
+      time,
+      open: next.open,
+      high: next.high,
+      low: next.low,
+      close: next.close,
+    });
+    parts.line.update({ time, value: next.close });
+  }, [livePrice, timeframe]);
 
   // Buy/sell arrows. A trade belongs to the last bar that started at or before
   // it: the same rule works for 1m, 1h, 1D and 1W bars.

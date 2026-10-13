@@ -20,6 +20,7 @@ import {
 } from '../hooks/useMarketData';
 import { useIndicators } from '../hooks/useIndicators';
 import { useFilledOrders } from '../hooks/useOrders';
+import { useLiveSymbols } from '../hooks/useRealtime';
 import { useIndicatorSettings } from '../hooks/useIndicatorSettings';
 import { useStocks } from '../hooks/useStocks';
 import { TIMEFRAMES, type Timeframe } from '../services/types';
@@ -50,6 +51,16 @@ function TradingTerminal({ symbol }: { symbol: string }) {
   const source = useMarketDataSource();
   const stocks = useStocks();
   const quote = useQuote(symbol);
+  // Live quotes for this stock; they land in the quote's cache entry
+  useLiveSymbols([symbol]);
+  const livePrice = useMemo(
+    () =>
+      quote.data && {
+        price: quote.data.price,
+        time: Date.parse(quote.data.timestamp) / 1000,
+      },
+    [quote.data],
+  );
 
   const supported = source.data?.timeframes ?? [...TIMEFRAMES];
   const requested = searchParams.get('tf');
@@ -138,6 +149,7 @@ function TradingTerminal({ symbol }: { symbol: string }) {
               showVolume={settings.volume.enabled}
               layers={layers}
               trades={trades}
+              livePrice={livePrice}
             />
           )}
           {candles.isPending && (
