@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../generated/prisma/client.js';
 import { StocksService } from '../stocks/stocks.service.js';
 import { MarketDataService } from './market-data.service.js';
+import { PriceFeed } from './price-feed.service.js';
 
 /**
  * Copies the provider's latest prices into stocks.current_price, every few
@@ -28,6 +29,7 @@ export class MarketPriceSyncService
     private readonly marketData: MarketDataService,
     private readonly stocksService: StocksService,
     private readonly config: ConfigService,
+    private readonly priceFeed: PriceFeed,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -73,6 +75,12 @@ export class MarketPriceSyncService
           new Prisma.Decimal(price),
         );
         updated++;
+        // Pushed only AFTER the database has it: what the user sees live is
+        // what an order would execute at
+        this.priceFeed.publish(quote);
+      } else if (!this.priceFeed.latestFor(stock.symbol)) {
+        // First round: give the feed a starting quote even if nothing moved
+        this.priceFeed.publish(quote);
       }
     }
 

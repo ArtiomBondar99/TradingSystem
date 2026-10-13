@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -14,6 +15,10 @@ async function bootstrap() {
   // On SIGTERM (docker stop, a deploy), run every onModuleDestroy before
   // exiting: finish the outbox batch, close RabbitMQ, Redis and Postgres
   app.enableShutdownHooks();
+
+  // Plain WebSockets (the "ws" library) for the /ws gateway: browsers speak
+  // the protocol natively, no client library needed
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   // Security headers on every response: no MIME sniffing, no framing
   // (clickjacking), HSTS, a strict Content-Security-Policy, and no

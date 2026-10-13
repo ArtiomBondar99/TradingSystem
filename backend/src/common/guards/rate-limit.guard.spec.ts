@@ -33,6 +33,7 @@ describe('RateLimitGuard', () => {
   class AuthController {}
   function login() {}
   const context = {
+    getType: () => 'http',
     getHandler: () => login,
     getClass: () => AuthController,
     switchToHttp: () => ({
@@ -127,6 +128,14 @@ describe('RateLimitGuard', () => {
 
     await expect(
       guardWith({ limit: 5, windowMs: 60_000 }).canActivate(context),
+    ).resolves.toBe(true);
+  });
+
+  it('lets WebSocket messages through (no HTTP request to count)', async () => {
+    const wsContext = { getType: () => 'ws' } as unknown as ExecutionContext;
+
+    await expect(
+      guardWith({ limit: 1, windowMs: 60_000 }).canActivate(wsContext),
     ).resolves.toBe(true);
   });
 });

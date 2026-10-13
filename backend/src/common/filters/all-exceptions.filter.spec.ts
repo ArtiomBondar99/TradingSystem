@@ -18,6 +18,7 @@ describe('AllExceptionsFilter', () => {
 
   const hostFor = (headers: Record<string, string>) =>
     ({
+      getType: () => 'http',
       switchToHttp: () => ({
         getRequest: () => ({ url: '/stocks/ZZZZ', headers }),
         getResponse: () => response,
@@ -133,5 +134,21 @@ describe('AllExceptionsFilter', () => {
     const { body, status } = sent();
     expect(status).toBe(503);
     expect(body).toEqual(custom);
+  });
+
+  it('answers a WebSocket error on the socket, not as an HTTP reply', () => {
+    const client = { send: jest.fn() };
+    const wsHost = {
+      getType: () => 'ws',
+      switchToWs: () => ({ getClient: () => client }),
+    } as unknown as ArgumentsHost;
+
+    filter.catch(new BadRequestException('symbols must be an array'), wsHost);
+
+    expect(reply).not.toHaveBeenCalled();
+    expect(JSON.parse(client.send.mock.calls[0][0] as string)).toEqual({
+      event: 'error',
+      data: { message: 'symbols must be an array' },
+    });
   });
 });

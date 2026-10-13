@@ -40,6 +40,13 @@ export class RateLimitGuard implements CanActivate {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Global guards also run for WebSocket messages, which have no HTTP
+    // request or IP header here. They arrive on one already-open connection;
+    // the gateway bounds them itself (symbols per connection).
+    if (context.getType() !== 'http') {
+      return true;
+    }
+
     // The method's decorator wins over the controller's
     const options = this.reflector.getAllAndOverride<
       RateLimitOptions | false | undefined

@@ -31,7 +31,7 @@ export default () => ({
     // tests need prices that hold still.
     syncIntervalMs: parseInt(
       process.env.MARKET_DATA_SYNC_INTERVAL_MS ??
-        (process.env.NODE_ENV === 'test' ? '0' : '5000'),
+        (process.env.NODE_ENV === 'test' ? '0' : '1000'),
       10,
     ),
   },

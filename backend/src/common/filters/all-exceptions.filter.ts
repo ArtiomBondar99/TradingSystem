@@ -45,6 +45,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
   constructor(private readonly adapterHost: HttpAdapterHost) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    // Global filters also catch errors in WebSocket handlers, where there is
+    // no HTTP response to write: answer on the socket instead
+    if (host.getType() !== 'http') {
+      this.catchWebSocket(exception, host);
+      return;
+    }
+
     const { httpAdapter } = this.adapterHost;
     const ctx = host.switchToHttp();
     const request = ctx.getRequest<Request>();
@@ -73,6 +80,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
 
     httpAdapter.reply(response, body, resolved.status);
+  }
+
+  // Same message, as an "error" event on the socket, never a stack trace
+  private catchWebSocket(exception: unknown, host: ArgumentsHost): void {
+    const resolved = this.resolve(exception);
+    if (resolved.status >= 500) {
+      this.logger.error(
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+    }
+
+    const client = host
+      .switchToWs()
+      .getClient<{ send?: (data: string) => void }>();
+    client.send?.(
+      JSON.stringify({ event: 'error', data: { message: resolved.message } }),
+    );
   }
 
   private resolve(exception: unknown): Resolved {

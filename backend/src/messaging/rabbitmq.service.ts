@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import amqp, {
@@ -128,6 +129,47 @@ export class RabbitMqService implements OnModuleDestroy {
       },
       // At most 10 unacked messages at a time per consumer
       { prefetch: 10 },
+    );
+  }
+
+  /**
+   * Fan-out: EVERY instance of the app gets EVERY message. consume() is the
+   * opposite (the instances share one queue, each message goes to one of
+   * them), right for "send this email once". This is for live updates that
+   * must reach the WebSocket clients connected to THIS instance.
+   *
+   * The queue is this process's own: exclusive, not durable, deleted when the
+   * connection closes. A live update missed while disconnected is fine: the
+   * client refetches. No dead-lettering for the same reason.
+   */
+  async subscribeBroadcast<T>(
+    routingKey: string,
+    handler: (payload: T) => void,
+  ): Promise<void> {
+    const queue = `broadcast.${routingKey}.${randomUUID()}`;
+
+    await this.channel.addSetup(async (channel: ConfirmChannel) => {
+      await channel.assertQueue(queue, {
+        exclusive: true,
+        durable: false,
+        autoDelete: true,
+      });
+      await channel.bindQueue(queue, EVENTS_EXCHANGE, routingKey);
+    });
+
+    await this.channel.consume(
+      queue,
+      (message: ConsumeMessage) => {
+        try {
+          handler(JSON.parse(message.content.toString()) as T);
+        } catch (error) {
+          this.logger.warn(
+            `Broadcast handler failed: ${(error as Error).message}`,
+          );
+        }
+        this.channel.ack(message);
+      },
+      { prefetch: 50 },
     );
   }
 

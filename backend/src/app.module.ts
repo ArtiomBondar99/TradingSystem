@@ -23,6 +23,7 @@ import { PortfolioModule } from './portfolio/portfolio.module.js';
 import { TransactionsModule } from './transactions/transactions.module.js';
 import { MarketDataModule } from './market-data/market-data.module.js';
 import { IndicatorsModule } from './indicators/indicators.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { CacheModule } from './cache/cache.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
@@ -56,6 +57,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     TransactionsModule,
     MarketDataModule,
     IndicatorsModule,
+    RealtimeModule,
     NotificationsModule,
   ],
   providers: [

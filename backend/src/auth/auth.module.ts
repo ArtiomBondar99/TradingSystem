@@ -26,5 +26,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
   ],
   controllers: [AuthController],
   providers: [AuthService, PasswordHasher, JwtStrategy],
+  // The WebSocket gateway verifies the same tokens
+  exports: [JwtModule],
 })
 export class AuthModule {}
