@@ -7,9 +7,12 @@ import { StocksService } from '../stocks/stocks.service.js';
 import type { Quote } from './market-data.types.js';
 import { MarketDataService } from './market-data.service.js';
 import { MarketPriceSyncService } from './market-price-sync.service.js';
+import { PriceFeed } from './price-feed.service.js';
 
 describe('MarketPriceSyncService', () => {
   let service: MarketPriceSyncService;
+  // The real one: tiny, no I/O
+  let priceFeed: PriceFeed;
 
   const stocksService = {
     findAll: jest.fn<() => Promise<StockResponseDto[]>>(),
@@ -45,10 +48,12 @@ describe('MarketPriceSyncService', () => {
         { provide: StocksService, useValue: stocksService },
         { provide: MarketDataService, useValue: marketData },
         { provide: ConfigService, useValue: config },
+        PriceFeed,
       ],
     }).compile();
 
     service = module.get(MarketPriceSyncService);
+    priceFeed = module.get(PriceFeed);
   });
 
   it('writes only the prices that changed, as exact Decimals', async () => {
@@ -76,5 +81,33 @@ describe('MarketPriceSyncService', () => {
     service.onApplicationBootstrap();
 
     expect(stocksService.findAll).not.toHaveBeenCalled();
+  });
+
+  it('publishes a changed price only after writing it to the database', async () => {
+    stocksService.findAll.mockResolvedValue([stock('AAPL', '190.00')]);
+    marketData.getFreshQuote.mockResolvedValue(quote('AAPL', 191.5));
+    const published: string[] = [];
+    priceFeed.quotes$.subscribe((q) => published.push(q.symbol));
+
+    await service.syncPrices();
+
+    expect(published).toEqual(['AAPL']);
+    expect(stocksService.updatePrice.mock.invocationCallOrder[0]).toBeLessThan(
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(priceFeed.latestFor('AAPL')?.price).toBe(191.5);
+  });
+
+  it('publishes an unchanged price once, as the starting quote', async () => {
+    stocksService.findAll.mockResolvedValue([stock('MSFT', '420.00')]);
+    marketData.getFreshQuote.mockResolvedValue(quote('MSFT', 420));
+    const published: string[] = [];
+    priceFeed.quotes$.subscribe((q) => published.push(q.symbol));
+
+    await service.syncPrices();
+    await service.syncPrices();
+
+    expect(published).toEqual(['MSFT']);
+    expect(stocksService.updatePrice).not.toHaveBeenCalled();
   });
 });
