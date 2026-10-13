@@ -1,22 +1,27 @@
-/* Minimal dark base until Tailwind arrives in Phase 2 */
+@import 'tailwindcss';
+
+/* Design tokens: each --color-* becomes a utility (bg-panel, text-muted,
+   border-line, text-up...). Palette inspired by TradingView's dark theme. */
+@theme {
+  --color-surface: #131722;
+  --color-panel: #1e222d;
+  --color-panel-hover: #2a2e39;
+  --color-line: #2a2e39;
+  --color-fg: #d1d4dc;
+  --color-muted: #787b86;
+  --color-accent: #2962ff;
+  --color-accent-hover: #1e53e5;
+  --color-up: #26a69a;
+  --color-down: #ef5350;
+  --color-warn: #f7a600;
+
+  --font-sans: 'Trebuchet MS', system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
 :root {
   color-scheme: dark;
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  color: #d1d4dc;
-  background: #131722;
 }
 
 body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-}
-
-.status-up {
-  color: #26a69a;
-}
-
-.status-down {
-  color: #ef5350;
+  @apply bg-surface font-sans text-fg antialiased;
 }
