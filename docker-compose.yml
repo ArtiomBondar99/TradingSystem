@@ -1,3 +1,5 @@
+# Kept from before the monorepo move: volume names are prefixed with the
+# project name, so renaming it would start with an empty database
 name: paper-trading-backend
 
 services:
@@ -54,7 +56,7 @@ services:
   migrate:
     profiles: ['app']
     build:
-      context: .
+      context: ./backend
       target: migrate
     container_name: paper-trading-migrate
     environment:
@@ -68,7 +70,7 @@ services:
   api:
     profiles: ['app']
     build:
-      context: .
+      context: ./backend
       target: production
     container_name: paper-trading-api
     # tini as PID 1: forwards SIGTERM to Node so the graceful shutdown runs

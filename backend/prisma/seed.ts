@@ -1,6 +1,9 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+
+// Same lookup as AppModule: backend/.env first, then the repo-root .env
+config({ path: ['.env', '../.env'] });
 
 // Mock starting prices. Later, MarketDataService will keep currentPrice up to date.
 const STOCKS = [

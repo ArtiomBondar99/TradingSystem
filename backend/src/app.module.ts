@@ -31,6 +31,10 @@ import { NotificationsModule } from './notifications/notifications.module.js';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // The repo keeps one .env at its root (docker compose reads it too).
+      // A backend/.env, if present, wins. In Docker neither file exists:
+      // the variables come from docker-compose.yml.
+      envFilePath: ['.env', '../.env'],
       load: [configuration],
       validate: validateEnv,
     }),

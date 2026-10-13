@@ -1,0 +1,28 @@
+# Repo-wide rules. backend/ and frontend/ each have their own .gitignore
+# for their build output.
+
+# One .env for the whole repo: docker compose and the backend both read it
+.env
+.env.*.local
+.env.local
+
+node_modules/
+
+# Logs
+logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+/.idea
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

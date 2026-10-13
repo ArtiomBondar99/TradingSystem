@@ -17,11 +17,12 @@ Built with NestJS, TypeScript, PostgreSQL (Prisma), Redis, RabbitMQ and Docker.
 
 ## Getting started
 
-Requires Node.js 24 and Docker.
+Requires Node.js 24 and Docker. Configuration lives in one `.env` at the repo root (shared with `docker-compose.yml`); a `backend/.env`, if present, takes precedence.
 
 ```bash
+cp .env.example .env        # at the repo root, then fill in the values
+cd backend
 npm install
-cp .env.example .env        # then fill in the values
 npm run dev                 # starts PostgreSQL, Redis and RabbitMQ in Docker + the API in watch mode
 npx prisma migrate deploy   # first run only: create the tables
 npx prisma db seed          # first run only: add the starting stocks (safe to re-run)
@@ -34,7 +35,7 @@ npx prisma db seed          # first run only: add the starting stocks (safe to r
 ### Everything in Docker (production-like)
 
 ```bash
-docker compose --profile app up -d --build
+docker compose --profile app up -d --build   # from the repo root
 ```
 
 This builds the API image, runs a one-shot `migrate` container (migrations + seed), and starts the API only after it succeeds.
