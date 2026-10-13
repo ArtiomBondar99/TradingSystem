@@ -1,18 +1,10 @@
 import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { STOCK_UNIVERSE } from '../src/stocks/stock-universe.js';
 
 // Same lookup as AppModule: backend/.env first, then the repo-root .env
 config({ path: ['.env', '../.env'] });
-
-// Mock starting prices. Later, MarketDataService will keep currentPrice up to date.
-const STOCKS = [
-  { symbol: 'AAPL', name: 'Apple Inc.', currentPrice: '190.00' },
-  { symbol: 'MSFT', name: 'Microsoft Corporation', currentPrice: '420.00' },
-  { symbol: 'TSLA', name: 'Tesla, Inc.', currentPrice: '250.00' },
-  { symbol: 'NVDA', name: 'NVIDIA Corporation', currentPrice: '120.00' },
-  { symbol: 'GOOGL', name: 'Alphabet Inc.', currentPrice: '170.00' },
-];
 
 async function main(): Promise<void> {
   const prisma = new PrismaClient({
@@ -20,16 +12,17 @@ async function main(): Promise<void> {
   });
 
   try {
-    for (const stock of STOCKS) {
+    for (const { symbol, name, basePrice } of STOCK_UNIVERSE) {
       // upsert = idempotent: running the seed again never creates duplicates.
-      // The price is only set on create, so re-seeding won't overwrite live prices.
+      // The price is only set on create: after that, MarketPriceSyncService
+      // keeps currentPrice up to date, and re-seeding must not overwrite it.
       await prisma.stock.upsert({
-        where: { symbol: stock.symbol },
-        create: stock,
-        update: { name: stock.name },
+        where: { symbol },
+        create: { symbol, name, currentPrice: basePrice },
+        update: { name },
       });
     }
-    console.log(`Seeded ${STOCKS.length} stocks`);
+    console.log(`Seeded ${STOCK_UNIVERSE.length} stocks`);
   } finally {
     await prisma.$disconnect();
   }

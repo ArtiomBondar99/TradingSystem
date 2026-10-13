@@ -25,6 +25,16 @@ export default () => ({
       (process.env.RATE_LIMIT_ENABLED ??
         String(process.env.NODE_ENV !== 'test')) === 'true',
   },
+  marketData: {
+    // How often provider prices are copied into stocks.current_price (the
+    // price orders execute at). 0 = off: the default in tests, where e2e
+    // tests need prices that hold still.
+    syncIntervalMs: parseInt(
+      process.env.MARKET_DATA_SYNC_INTERVAL_MS ??
+        (process.env.NODE_ENV === 'test' ? '0' : '5000'),
+      10,
+    ),
+  },
   cors: {
     // Comma-separated browser origins allowed to call the API, e.g.
     // "http://localhost:5173,https://app.example.com". Empty = no CORS.

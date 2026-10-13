@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CacheService } from '../cache/cache.service.js';
-import type { Stock } from '../generated/prisma/client.js';
+import type { Prisma, Stock } from '../generated/prisma/client.js';
 import { StockResponseDto } from './dto/stock-response.dto.js';
 import {
   STOCKS_CACHE_TTL_SECONDS,
@@ -47,5 +47,12 @@ export class StocksService {
     }
 
     return stock;
+  }
+
+  // Called by the market-data price sync. Drops the cached copies, so the
+  // public endpoints show the new price now instead of in up to 30 seconds.
+  async updatePrice(symbol: string, price: Prisma.Decimal): Promise<void> {
+    await this.stocksRepository.updatePrice(symbol, price);
+    await this.cache.del(stocksCacheKeys.all, stocksCacheKeys.bySymbol(symbol));
   }
 }
