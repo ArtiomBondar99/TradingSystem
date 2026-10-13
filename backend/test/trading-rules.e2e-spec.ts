@@ -190,6 +190,31 @@ describe('Trading rules: fees, slippage, stop orders (e2e)', () => {
     expect(placed.body).toMatchObject({ status: 'FILLED', price: '100.02' });
   });
 
+  it('the preview predicts the real fill exactly (same rules, one place)', async () => {
+    const token = await signUp();
+    const body = { symbol: 'AAPL', side: 'BUY', quantity: 7 };
+
+    const preview = await request(app.getHttpServer())
+      .post('/orders/preview')
+      .set('Authorization', `Bearer ${token}`)
+      .send(body)
+      .expect(200);
+    // 100.05 * 7 = 700.35, commission min 1.00
+    expect(preview.body).toMatchObject({
+      executesNow: true,
+      blockedReason: null,
+      estimatedPrice: '100.05',
+      estimatedFee: '1.00',
+      estimatedTotal: '701.35',
+    });
+    // A preview trades nothing
+    expect(await cash(token)).toBe('100000.00');
+
+    const placed = await order(token, body);
+    expect(placed.body).toMatchObject({ price: '100.05', fee: '1.00' });
+    expect(await cash(token)).toBe('99298.65'); // 100,000 - 701.35
+  });
+
   it('returns 400 for a STOP without stopPrice', async () => {
     const token = await signUp();
     await request(app.getHttpServer())

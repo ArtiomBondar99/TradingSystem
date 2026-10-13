@@ -81,8 +81,14 @@ describe('OrdersService', () => {
     $transaction: jest.fn(async (work: (client: typeof tx) => unknown) =>
       work(tx),
     ),
-    // executePendingOrder's first read, before the transaction
-    order: { findUnique: jest.fn<(args: any) => Promise<any>>() },
+    // Reads outside a transaction: executePendingOrder's first read, and
+    // previewOrder (read-only, no lock)
+    order: {
+      findUnique: jest.fn<(args: any) => Promise<any>>(),
+      findMany: jest.fn<(args: any) => Promise<any[]>>(),
+    },
+    wallet: { findUnique: jest.fn<(args: any) => Promise<any>>() },
+    position: { findUnique: jest.fn<(args: any) => Promise<any>>() },
   };
   const stocksService = {
     getBySymbolOrThrow: jest.fn<StocksService['getBySymbolOrThrow']>(),
@@ -446,13 +452,14 @@ describe('OrdersService', () => {
       expect(page.nextCursor).toBeNull();
     });
 
-    it('passes the status filter and asks for one extra row', async () => {
+    it('passes the status and symbol filters and asks for one extra row', async () => {
       ordersRepository.findPageByUserId.mockResolvedValue([]);
 
       await service.getMyOrders('user-1', {
         limit: 5,
         cursor: 'c1',
         status: 'REJECTED',
+        symbol: 'AAPL',
       });
 
       expect(ordersRepository.findPageByUserId).toHaveBeenCalledWith(
@@ -460,6 +467,7 @@ describe('OrdersService', () => {
         6,
         'c1',
         'REJECTED',
+        'AAPL',
       );
     });
 
@@ -881,6 +889,105 @@ describe('OrdersService', () => {
           ...fields,
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('previewOrder', () => {
+    const REAL: ExecutionRules = {
+      feesEnabled: true,
+      slippageBps: 5,
+      enforceMarketHours: true,
+    };
+    const preview = (body: object) =>
+      service.previewOrder('user-1', {
+        symbol: 'AAPL',
+        side: 'BUY',
+        type: 'MARKET',
+        quantity: 10,
+        ...body,
+      } as never);
+
+    beforeEach(() => {
+      config.getOrThrow.mockReturnValue(REAL);
+      jest.useFakeTimers({ now: new Date('2026-10-13T15:00:00Z') }); // open
+      prisma.wallet.findUnique.mockResolvedValue({ cashBalance: D('100000') });
+      prisma.order.findMany.mockResolvedValue([]);
+      prisma.position.findUnique.mockResolvedValue(null);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('estimates a market BUY: slipped price, commission, total', async () => {
+      await expect(preview({})).resolves.toMatchObject({
+        marketPrice: '190.00',
+        marketOpen: true,
+        executesNow: true,
+        blockedReason: null,
+        estimatedPrice: '190.10',
+        estimatedAmount: '1901.00',
+        estimatedFee: '1.00',
+        estimatedTotal: '1902.00',
+        buyingPower: '100000.00',
+      });
+      // Read-only: no transaction, no lock, nothing written
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('says a market order would be rejected while the market is closed', async () => {
+      jest.setSystemTime(new Date('2026-10-17T15:00:00Z')); // Saturday
+
+      await expect(preview({})).resolves.toMatchObject({
+        marketOpen: false,
+        executesNow: false,
+        blockedReason: MARKET_CLOSED,
+      });
+    });
+
+    it('a waiting LIMIT is estimated at its limit, against buying power after reservations', async () => {
+      prisma.wallet.findUnique.mockResolvedValue({ cashBalance: D('2000') });
+      prisma.order.findMany.mockResolvedValue([
+        {
+          side: 'BUY',
+          type: 'LIMIT',
+          stockId: 'stock-aapl',
+          quantity: 1,
+          limitPrice: D('500'),
+          stopPrice: null,
+        },
+      ]); // reserves 500 + 1.00 commission
+
+      const result = await preview({ type: 'LIMIT', limitPrice: 180 });
+
+      // 10 * 180 + 1.00 = 1801.00 > 2000 - 501.00
+      expect(result).toMatchObject({
+        executesNow: false,
+        estimatedPrice: '180.00',
+        buyingPower: '1499.00',
+        blockedReason: INSUFFICIENT_FUNDS,
+      });
+    });
+
+    it('counts shares reserved by open SELL orders', async () => {
+      prisma.position.findUnique.mockResolvedValue({ quantity: 10 });
+      prisma.order.findMany.mockResolvedValue([
+        {
+          side: 'SELL',
+          type: 'STOP',
+          stockId: 'stock-aapl',
+          quantity: 8,
+          limitPrice: null,
+          stopPrice: D('150'),
+        },
+      ]);
+
+      await expect(
+        preview({ side: 'SELL', quantity: 5 }),
+      ).resolves.toMatchObject({
+        sellableShares: 2,
+        blockedReason: INSUFFICIENT_SHARES,
+      });
     });
   });
 });

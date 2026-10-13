@@ -21,6 +21,7 @@ import { OrderEvents } from '../messaging/messaging.constants.js';
 import { StocksService } from '../stocks/stocks.service.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto.js';
+import { OrderPreviewDto } from './dto/order-preview.dto.js';
 import { OrderPageDto, OrderResponseDto } from './dto/order-response.dto.js';
 import {
   commission,
@@ -98,6 +99,7 @@ export class OrdersService {
       query.limit + 1,
       query.cursor,
       query.status,
+      query.symbol,
     );
 
     const page = toCursorPage(rows, query.limit);
@@ -115,28 +117,7 @@ export class OrdersService {
     dto: CreateOrderDto,
     idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
-    this.checkPrices(dto);
-
-    // Read outside the transaction on purpose: a market order executes at the
-    // price seen when it was placed. Only the wallet needs to be locked.
-    const stock = await this.stocksService.getBySymbolOrThrow(dto.symbol);
-
-    // The DTO allows at most 2 decimals, so toFixed(2) is exact
-    const toDecimal = (value?: number) =>
-      value === undefined ? null : new Prisma.Decimal(value.toFixed(2));
-
-    const trade: Trade = {
-      userId,
-      stockId: stock.id,
-      symbol: stock.symbol,
-      side: dto.side,
-      type: dto.type,
-      quantity: dto.quantity,
-      marketPrice: stock.currentPrice,
-      limitPrice: toDecimal(dto.limitPrice),
-      stopPrice: toDecimal(dto.stopPrice),
-      idempotencyKey: idempotencyKey ?? null,
-    };
+    const trade = await this.toTrade(userId, dto, idempotencyKey);
 
     const order = await this.prisma
       .$transaction(async (tx) => {
@@ -178,7 +159,121 @@ export class OrdersService {
         throw error;
       });
 
-    return OrderResponseDto.fromEntity(order, stock.symbol);
+    return OrderResponseDto.fromEntity(order, trade.symbol);
+  }
+
+  /**
+   * What would happen if this order were sent now: the estimated fill price,
+   * commission and total, whether it executes now or waits, and the cash /
+   * shares left after the open orders' reservations. Read-only (no lock):
+   * an estimate for the order form, so the rules live only here, not in the UI.
+   */
+  async previewOrder(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<OrderPreviewDto> {
+    const trade = await this.toTrade(userId, dto);
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) {
+      throw new NotFoundException('Wallet not found');
+    }
+    const reserved = await this.reserved(this.prisma, trade);
+    const owned = await this.sharesOwned(this.prisma, trade);
+
+    const marketOpen = this.isMarketOpen();
+    const executesNow =
+      marketOpen &&
+      (trade.type === OrderType.MARKET ||
+        isTriggered(trade, trade.marketPrice));
+
+    // Now: the fill price. Waiting: a LIMIT's worst case is its limit; a STOP
+    // is estimated as a market fill at its stop price.
+    let price: Prisma.Decimal;
+    if (executesNow || trade.type === OrderType.MARKET) {
+      price = fillPrice(
+        this.rules,
+        trade.side,
+        trade.marketPrice,
+        trade.limitPrice,
+      );
+    } else if (trade.type === OrderType.LIMIT) {
+      price = trade.limitPrice as Prisma.Decimal;
+    } else {
+      price = fillPrice(
+        this.rules,
+        trade.side,
+        trade.stopPrice as Prisma.Decimal,
+        null,
+      );
+    }
+    const amount = price.mul(trade.quantity);
+    const fee = commission(this.rules, trade.quantity, amount);
+    const buying = trade.side === OrderSide.BUY;
+    const total = buying ? amount.add(fee) : amount.sub(fee);
+
+    const buyingPower = wallet.cashBalance.sub(reserved.cash);
+    const sellableShares = owned - reserved.shares;
+
+    // The same checks placeOrder makes, in the same order
+    let blockedReason: string | null = null;
+    if (trade.type === OrderType.MARKET && !marketOpen) {
+      blockedReason = MARKET_CLOSED;
+    } else if (
+      buying &&
+      buyingPower.lessThan(
+        executesNow ? total : reservedCash(this.rules, trade),
+      )
+    ) {
+      blockedReason = INSUFFICIENT_FUNDS;
+    } else if (!buying && sellableShares < trade.quantity) {
+      blockedReason = INSUFFICIENT_SHARES;
+    }
+
+    return {
+      symbol: trade.symbol,
+      marketPrice: trade.marketPrice.toFixed(2),
+      marketOpen,
+      executesNow,
+      blockedReason,
+      estimatedPrice: price.toFixed(2),
+      estimatedAmount: amount.toFixed(2),
+      estimatedFee: fee.toFixed(2),
+      estimatedTotal: total.toFixed(2),
+      buyingPower: buyingPower.toFixed(2),
+      sellableShares,
+    };
+  }
+
+  // The order as the service works with it: validated prices as Decimals,
+  // and the stock's current market price
+  private async toTrade(
+    userId: string,
+    dto: CreateOrderDto,
+    idempotencyKey?: string,
+  ): Promise<Trade> {
+    this.checkPrices(dto);
+
+    // Read outside the transaction on purpose: a market order executes at the
+    // price seen when it was placed. Only the wallet needs to be locked.
+    const stock = await this.stocksService.getBySymbolOrThrow(dto.symbol);
+
+    // The DTO allows at most 2 decimals, so toFixed(2) is exact
+    const toDecimal = (value?: number) =>
+      value === undefined ? null : new Prisma.Decimal(value.toFixed(2));
+
+    return {
+      userId,
+      stockId: stock.id,
+      symbol: stock.symbol,
+      side: dto.side,
+      type: dto.type,
+      quantity: dto.quantity,
+      marketPrice: stock.currentPrice,
+      limitPrice: toDecimal(dto.limitPrice),
+      stopPrice: toDecimal(dto.stopPrice),
+      idempotencyKey: idempotencyKey ?? null,
+    };
   }
 
   /**

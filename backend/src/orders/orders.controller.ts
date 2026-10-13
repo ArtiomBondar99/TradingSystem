@@ -24,6 +24,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto.js';
+import { OrderPreviewDto } from './dto/order-preview.dto.js';
 import { OrderPageDto, OrderResponseDto } from './dto/order-response.dto.js';
 import { OrdersService } from './orders.service.js';
 
@@ -56,6 +57,18 @@ export class OrdersController {
     idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
     return this.ordersService.placeOrder(userId, dto, idempotencyKey);
+  }
+
+  // Same body as POST /orders, but nothing is saved or traded: the order form
+  // shows these estimates while the user types
+  @Post('preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: OrderPreviewDto })
+  previewOrder(
+    @CurrentUser('userId') userId: string,
+    @Body() dto: CreateOrderDto,
+  ): Promise<OrderPreviewDto> {
+    return this.ordersService.previewOrder(userId, dto);
   }
 
   // Order history, newest first. ?status=REJECTED shows only rejected orders

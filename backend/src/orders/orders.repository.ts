@@ -18,9 +18,14 @@ export class OrdersRepository {
     take: number,
     cursor?: string,
     status?: OrderStatus,
+    symbol?: string,
   ): Promise<OrderWithStock[]> {
     return this.prisma.order.findMany({
-      where: { userId, ...(status && { status }) },
+      where: {
+        userId,
+        ...(status && { status }),
+        ...(symbol && { stock: { symbol } }),
+      },
       include: { stock: true },
       // Newest first; served by the (user_id, created_at) index
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
