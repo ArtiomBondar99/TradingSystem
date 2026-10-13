@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import {
+  BadRequestException,
   ConflictException,
   NotFoundException,
   UnprocessableEntityException,
@@ -12,6 +13,7 @@ import { OrdersRepository, type OrderWithStock } from './orders.repository.js';
 import {
   INSUFFICIENT_FUNDS,
   INSUFFICIENT_SHARES,
+  isMarketable,
   OrdersService,
 } from './orders.service.js';
 
@@ -37,6 +39,16 @@ describe('OrdersService', () => {
     $queryRaw: jest.fn<(...args: any[]) => Promise<any>>(),
     order: {
       findUnique: jest.fn<(args: any) => Promise<any>>(),
+      findFirst: jest.fn<(args: any) => Promise<any>>(),
+      // The user's open LIMIT orders (reservations); none unless a test says so
+      findMany: jest.fn<(args: any) => Promise<any[]>>(),
+      update: jest.fn(async ({ where, data }: any) => ({
+        id: where.id,
+        type: 'LIMIT',
+        rejectReason: null,
+        createdAt: new Date(),
+        ...data,
+      })),
       // Echo back what was written, like the database would
       create: jest.fn(async ({ data }: any) => ({
         id: 'order-1',
@@ -63,6 +75,8 @@ describe('OrdersService', () => {
     $transaction: jest.fn(async (work: (client: typeof tx) => unknown) =>
       work(tx),
     ),
+    // executePendingOrder's first read, before the transaction
+    order: { findUnique: jest.fn<(args: any) => Promise<any>>() },
   };
   const stocksService = {
     getBySymbolOrThrow: jest.fn<StocksService['getBySymbolOrThrow']>(),
@@ -88,6 +102,7 @@ describe('OrdersService', () => {
     jest.clearAllMocks();
     stocksService.getBySymbolOrThrow.mockResolvedValue(apple);
     tx.order.findUnique.mockResolvedValue(null);
+    tx.order.findMany.mockResolvedValue([]);
     tx.position.findUnique.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -439,6 +454,223 @@ describe('OrdersService', () => {
 
       expect(page.items.map((o) => o.id)).toEqual(['o1', 'o2']);
       expect(page.nextCursor).toBe('o2');
+    });
+  });
+
+  describe('isMarketable', () => {
+    it('a BUY limit executes at or below its limit, a SELL at or above', () => {
+      expect(isMarketable('BUY', D('190'), D('190'))).toBe(true);
+      expect(isMarketable('BUY', D('189.99'), D('190'))).toBe(true);
+      expect(isMarketable('BUY', D('190.01'), D('190'))).toBe(false);
+      expect(isMarketable('SELL', D('190'), D('190'))).toBe(true);
+      expect(isMarketable('SELL', D('190.01'), D('190'))).toBe(true);
+      expect(isMarketable('SELL', D('189.99'), D('190'))).toBe(false);
+    });
+  });
+
+  describe('LIMIT orders', () => {
+    // The market price of AAPL is 190 (see `apple`)
+    const limit = (
+      side: 'BUY' | 'SELL',
+      quantity: number,
+      limitPrice: number,
+    ) =>
+      service.placeOrder('user-1', {
+        symbol: 'AAPL',
+        side,
+        type: 'LIMIT',
+        quantity,
+        limitPrice,
+      });
+
+    // An open LIMIT order the user already has (for the reservations)
+    const givenOpenOrders = (
+      ...orders: {
+        side: 'BUY' | 'SELL';
+        quantity: number;
+        limitPrice: string;
+      }[]
+    ) =>
+      tx.order.findMany.mockResolvedValue(
+        orders.map((o) => ({
+          ...o,
+          stockId: 'stock-aapl',
+          limitPrice: D(o.limitPrice),
+        })),
+      );
+
+    it('waits as PENDING when the price is not reached, moving no money', async () => {
+      givenCash('100000');
+
+      const order = await limit('BUY', 10, 180);
+
+      expect(order).toMatchObject({
+        type: 'LIMIT',
+        status: 'PENDING',
+        limitPrice: '180.00',
+        price: null,
+      });
+      expect(tx.wallet.update).not.toHaveBeenCalled();
+      expect(tx.transaction.create).not.toHaveBeenCalled();
+    });
+
+    it('executes at once, at the MARKET price, when the limit is already reached', async () => {
+      givenCash('100000');
+
+      // Willing to pay up to 200, the market asks 190: you pay 190
+      const order = await limit('BUY', 10, 200);
+
+      expect(order).toMatchObject({
+        status: 'FILLED',
+        price: '190.00',
+        limitPrice: '200.00',
+      });
+      expect(
+        firstArg(tx.wallet.update).data.cashBalance.decrement.toFixed(2),
+      ).toBe('1900.00');
+    });
+
+    it('rejects a BUY limit the cash cannot cover at its limit price', async () => {
+      givenCash('1799.99');
+
+      const order = await limit('BUY', 10, 180);
+
+      expect(order.status).toBe('REJECTED');
+      expect(order.rejectReason).toBe(INSUFFICIENT_FUNDS);
+    });
+
+    it('does not let cash promised to an open BUY limit be spent again', async () => {
+      // $2,000 in the wallet, $1,800 of it reserved by an open order
+      givenCash('2000');
+      givenOpenOrders({ side: 'BUY', quantity: 10, limitPrice: '180' });
+
+      const market = await service.placeOrder('user-1', {
+        symbol: 'AAPL',
+        side: 'BUY',
+        type: 'MARKET',
+        quantity: 2, // $380 > the $200 left
+      });
+
+      expect(market.rejectReason).toBe(INSUFFICIENT_FUNDS);
+    });
+
+    it('does not let shares promised to an open SELL limit be sold again', async () => {
+      givenCash('0');
+      givenPosition(10, '150');
+      givenOpenOrders({ side: 'SELL', quantity: 8, limitPrice: '250' });
+
+      const order = await limit('SELL', 5, 260); // only 2 shares are free
+
+      expect(order.status).toBe('REJECTED');
+      expect(order.rejectReason).toBe(INSUFFICIENT_SHARES);
+    });
+
+    it('refuses a limitPrice on a MARKET order (400)', async () => {
+      await expect(
+        service.placeOrder('user-1', {
+          symbol: 'AAPL',
+          side: 'BUY',
+          type: 'MARKET',
+          quantity: 1,
+          limitPrice: 100,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('executePendingOrder (the matcher)', () => {
+    const pending = (overrides: object = {}) => ({
+      id: 'order-pending',
+      userId: 'user-1',
+      stockId: 'stock-aapl',
+      side: 'BUY',
+      type: 'LIMIT',
+      quantity: 10,
+      limitPrice: D('195'),
+      status: 'PENDING',
+      idempotencyKey: null,
+      stock: apple, // trades at 190
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      prisma.order.findUnique.mockResolvedValue(pending());
+      givenCash('100000');
+    });
+
+    it('fills the waiting order itself (update, not a new order) at the market price', async () => {
+      tx.order.findUnique.mockResolvedValue(pending());
+
+      const order = await service.executePendingOrder('order-pending');
+
+      expect(order).toMatchObject({ id: 'order-pending', status: 'FILLED' });
+      expect(tx.order.create).not.toHaveBeenCalled();
+      expect(firstArg(tx.order.update).data.price).toEqual(D('190'));
+      // Its own reservation pays for it: it is left out of "reserved"
+      expect(firstArg(tx.order.findMany).where.id).toEqual({
+        not: 'order-pending',
+      });
+      expect(tx.transaction.create).toHaveBeenCalled();
+    });
+
+    it('does nothing if the price moved away again', async () => {
+      tx.order.findUnique.mockResolvedValue(pending({ limitPrice: D('185') }));
+
+      await expect(
+        service.executePendingOrder('order-pending'),
+      ).resolves.toBeNull();
+      expect(tx.wallet.update).not.toHaveBeenCalled();
+    });
+
+    it('does nothing if the order was cancelled meanwhile (re-read under the lock)', async () => {
+      tx.order.findUnique.mockResolvedValue(pending({ status: 'CANCELLED' }));
+
+      await expect(
+        service.executePendingOrder('order-pending'),
+      ).resolves.toBeNull();
+      expect(tx.order.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelOrder', () => {
+    beforeEach(() => givenCash('100000'));
+
+    it('cancels an open order', async () => {
+      tx.order.findFirst.mockResolvedValue({
+        id: 'order-1',
+        status: 'PENDING',
+        stock: apple,
+      });
+
+      const order = await service.cancelOrder('user-1', 'order-1');
+
+      expect(order.status).toBe('CANCELLED');
+      expect(firstArg(tx.order.findFirst).where).toEqual({
+        id: 'order-1',
+        userId: 'user-1',
+      });
+    });
+
+    it("returns 404 for an unknown order or someone else's", async () => {
+      tx.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.cancelOrder('user-1', 'order-x'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('returns 409 for an order that already executed', async () => {
+      tx.order.findFirst.mockResolvedValue({
+        id: 'order-1',
+        status: 'FILLED',
+        stock: apple,
+      });
+
+      await expect(
+        service.cancelOrder('user-1', 'order-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.order.update).not.toHaveBeenCalled();
     });
   });
 });

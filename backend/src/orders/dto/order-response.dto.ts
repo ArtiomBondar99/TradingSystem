@@ -12,7 +12,9 @@ export class OrderResponseDto {
   side: OrderSide;
   type: OrderType;
   quantity: number;
-  // "190.00" when FILLED, null when REJECTED (it never executed)
+  // LIMIT orders: the price asked for; null for MARKET orders
+  limitPrice: string | null;
+  // "190.00" when FILLED, null otherwise (it hasn't executed, or never will)
   price: string | null;
   status: OrderStatus;
   rejectReason: string | null;
@@ -26,6 +28,7 @@ export class OrderResponseDto {
       side: order.side,
       type: order.type,
       quantity: order.quantity,
+      limitPrice: order.limitPrice?.toFixed(2) ?? null,
       price: order.price?.toFixed(2) ?? null,
       status: order.status,
       rejectReason: order.rejectReason,

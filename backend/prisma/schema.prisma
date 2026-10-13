@@ -60,8 +60,11 @@ enum OrderSide {
   SELL
 }
 
+// MARKET: now, at the current price. LIMIT: only at limitPrice or better;
+// waits as PENDING until the price gets there (or the user cancels it).
 enum OrderType {
   MARKET
+  LIMIT
 }
 
 enum OrderStatus {
@@ -79,6 +82,8 @@ model Order {
   side           OrderSide
   type           OrderType   @default(MARKET)
   quantity       Int
+  // LIMIT only: buy at this price or lower / sell at this price or higher
+  limitPrice     Decimal?    @map("limit_price") @db.Decimal(18, 2)
   // Execution price; stays null until the order is FILLED
   price          Decimal?    @db.Decimal(18, 2)
   status         OrderStatus @default(PENDING)
@@ -98,6 +103,8 @@ model Order {
   @@unique([userId, idempotencyKey])
   // GET /orders lists a user's orders newest first
   @@index([userId, createdAt])
+  // The limit-order matcher looks for PENDING orders every few seconds
+  @@index([status, stockId])
   @@map("orders")
 }
 

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import { PrismaService } from '../database/prisma.service.js';
 import {
   OrderSide,
   OrderStatus,
+  OrderType,
   Prisma,
   type Order,
 } from '../generated/prisma/client.js';
@@ -32,12 +34,35 @@ type Trade = {
   stockId: string;
   symbol: string;
   side: OrderSide;
+  type: OrderType;
   quantity: number;
+  // Execution price: the current market price
   price: Prisma.Decimal;
   // price * quantity: the cash that leaves (BUY) or enters (SELL) the wallet
   amount: Prisma.Decimal;
+  // LIMIT orders: the worst price the user accepts
+  limitPrice: Prisma.Decimal | null;
   idempotencyKey: string | null;
 };
+
+// What the user's open LIMIT orders have already promised: cash for BUYs,
+// shares for SELLs. Not available for new orders, or the same $10,000 could
+// back two orders and the wallet would go negative when both fill.
+type Reserved = { cash: Prisma.Decimal; shares: number };
+
+/**
+ * A LIMIT order can execute when the market price is at its limit or better:
+ * a BUY at or below it, a SELL at or above it.
+ */
+export function isMarketable(
+  side: OrderSide,
+  marketPrice: Prisma.Decimal,
+  limitPrice: Prisma.Decimal,
+): boolean {
+  return side === OrderSide.BUY
+    ? marketPrice.lessThanOrEqualTo(limitPrice)
+    : marketPrice.greaterThanOrEqualTo(limitPrice);
+}
 
 @Injectable()
 export class OrdersService {
@@ -76,6 +101,12 @@ export class OrdersService {
     dto: CreateOrderDto,
     idempotencyKey?: string,
   ): Promise<OrderResponseDto> {
+    if (dto.type === OrderType.MARKET && dto.limitPrice !== undefined) {
+      throw new BadRequestException(
+        'limitPrice is only for LIMIT orders: a MARKET order takes the current price',
+      );
+    }
+
     // Read outside the transaction on purpose: a market order executes at the
     // price seen when it was placed. Only the wallet needs to be locked.
     const stock = await this.stocksService.getBySymbolOrThrow(dto.symbol);
@@ -85,10 +116,16 @@ export class OrdersService {
       stockId: stock.id,
       symbol: stock.symbol,
       side: dto.side,
+      type: dto.type,
       quantity: dto.quantity,
       price: stock.currentPrice,
       // Decimal math, never JS numbers: 0.1 + 0.2 !== 0.3
       amount: stock.currentPrice.mul(dto.quantity),
+      // The DTO allows at most 2 decimals, so toFixed(2) is exact
+      limitPrice:
+        dto.type === OrderType.LIMIT && dto.limitPrice !== undefined
+          ? new Prisma.Decimal(dto.limitPrice.toFixed(2))
+          : null,
       idempotencyKey: idempotencyKey ?? null,
     };
 
@@ -103,6 +140,16 @@ export class OrdersService {
           return previous;
         }
 
+        // A LIMIT order whose price isn't reached yet waits in the book
+        if (
+          trade.limitPrice &&
+          !isMarketable(trade.side, trade.price, trade.limitPrice)
+        ) {
+          return this.rest(tx, wallet, trade);
+        }
+
+        // MARKET, or a LIMIT the market already satisfies: execute now, at
+        // the market price (which is the limit or better)
         return trade.side === OrderSide.BUY
           ? this.buy(tx, wallet, trade)
           : this.sell(tx, wallet, trade);
@@ -122,6 +169,94 @@ export class OrdersService {
       });
 
     return OrderResponseDto.fromEntity(order, stock.symbol);
+  }
+
+  /**
+   * Called by LimitOrderMatcher when the price reached an open LIMIT order.
+   * Returns the FILLED (or REJECTED) order, or null when there was nothing to
+   * do: already filled/cancelled meanwhile, or the price moved away again.
+   */
+  async executePendingOrder(orderId: string): Promise<Order | null> {
+    const pending = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+    if (!pending || pending.status !== OrderStatus.PENDING) {
+      return null;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // The same lock as placing and cancelling: none of them can interleave
+      const wallet = await this.lockWallet(tx, pending.userId);
+
+      // Re-read under the lock: a cancel, or another API instance's matcher,
+      // may have handled this order since the read above
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { stock: true },
+      });
+      if (
+        !order ||
+        order.status !== OrderStatus.PENDING ||
+        order.limitPrice === null
+      ) {
+        return null;
+      }
+
+      // The price now, read inside the transaction, not the one the matcher saw
+      const price = order.stock.currentPrice;
+      if (!isMarketable(order.side, price, order.limitPrice)) {
+        return null;
+      }
+
+      const trade: Trade = {
+        userId: order.userId,
+        stockId: order.stockId,
+        symbol: order.stock.symbol,
+        side: order.side,
+        type: order.type,
+        quantity: order.quantity,
+        price,
+        amount: price.mul(order.quantity),
+        limitPrice: order.limitPrice,
+        idempotencyKey: order.idempotencyKey,
+      };
+
+      return order.side === OrderSide.BUY
+        ? this.buy(tx, wallet, trade, order.id)
+        : this.sell(tx, wallet, trade, order.id);
+    });
+  }
+
+  // Only an order that hasn't executed yet can be cancelled
+  async cancelOrder(
+    userId: string,
+    orderId: string,
+  ): Promise<OrderResponseDto> {
+    return this.prisma.$transaction(async (tx) => {
+      // Same lock as a fill: the matcher can't fill it while we cancel it
+      await this.lockWallet(tx, userId);
+
+      // Filtered by userId: someone else's order is "not found", not "forbidden",
+      // so ids of other users' orders can't be probed
+      const order = await tx.order.findFirst({
+        where: { id: orderId, userId },
+        include: { stock: true },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== OrderStatus.PENDING) {
+        throw new ConflictException(
+          `Only open orders can be cancelled; this one is ${order.status}`,
+        );
+      }
+
+      const cancelled = await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.CANCELLED },
+      });
+      return OrderResponseDto.fromEntity(cancelled, order.stock.symbol);
+    });
   }
 
   // Same key = same request: return the saved order, don't trade again.
@@ -147,10 +282,17 @@ export class OrdersService {
       return null;
     }
 
+    // Decimals compare with equals(), not ===; both missing also counts as same
+    const sameLimit =
+      previous.limitPrice && trade.limitPrice
+        ? previous.limitPrice.equals(trade.limitPrice)
+        : !previous.limitPrice && !trade.limitPrice;
     const sameRequest =
       previous.stockId === trade.stockId &&
       previous.side === trade.side &&
-      previous.quantity === trade.quantity;
+      previous.type === trade.type &&
+      previous.quantity === trade.quantity &&
+      sameLimit;
 
     if (!sameRequest) {
       throw new UnprocessableEntityException(
@@ -181,13 +323,81 @@ export class OrdersService {
     return wallet;
   }
 
-  private async buy(
+  // Computed from the open orders themselves (no extra "reserved" column that
+  // could drift out of sync). Safe because we hold the wallet lock.
+  private async reserved(
+    tx: Prisma.TransactionClient,
+    trade: Trade,
+    // The order being filled: its own reservation is what pays for it
+    excludeOrderId?: string,
+  ): Promise<Reserved> {
+    const open = await tx.order.findMany({
+      where: {
+        userId: trade.userId,
+        status: OrderStatus.PENDING,
+        type: OrderType.LIMIT,
+        ...(excludeOrderId && { id: { not: excludeOrderId } }),
+      },
+      select: { side: true, stockId: true, quantity: true, limitPrice: true },
+    });
+
+    let cash = new Prisma.Decimal(0);
+    let shares = 0;
+    for (const order of open) {
+      if (order.side === OrderSide.BUY && order.limitPrice) {
+        cash = cash.add(order.limitPrice.mul(order.quantity));
+      } else if (
+        order.side === OrderSide.SELL &&
+        order.stockId === trade.stockId
+      ) {
+        shares += order.quantity;
+      }
+    }
+
+    return { cash, shares };
+  }
+
+  // A LIMIT order that can't execute yet: check that the cash/shares exist
+  // (and aren't promised to another order), then save it as PENDING. Nothing
+  // moves until it fills.
+  private async rest(
     tx: Prisma.TransactionClient,
     wallet: LockedWallet,
     trade: Trade,
   ): Promise<Order> {
-    if (wallet.cash_balance.lessThan(trade.amount)) {
-      return this.reject(tx, trade, INSUFFICIENT_FUNDS);
+    const reserved = await this.reserved(tx, trade);
+
+    if (trade.side === OrderSide.BUY) {
+      // Worst case: it fills exactly at the limit
+      const needed = (trade.limitPrice as Prisma.Decimal).mul(trade.quantity);
+      if (wallet.cash_balance.sub(reserved.cash).lessThan(needed)) {
+        return this.reject(tx, trade, INSUFFICIENT_FUNDS);
+      }
+    } else {
+      const owned = await this.sharesOwned(tx, trade);
+      if (owned - reserved.shares < trade.quantity) {
+        return this.reject(tx, trade, INSUFFICIENT_SHARES);
+      }
+    }
+
+    return tx.order.create({
+      data: {
+        ...this.orderFields(trade),
+        status: OrderStatus.PENDING,
+      },
+    });
+  }
+
+  private async buy(
+    tx: Prisma.TransactionClient,
+    wallet: LockedWallet,
+    trade: Trade,
+    existingOrderId?: string,
+  ): Promise<Order> {
+    const reserved = await this.reserved(tx, trade, existingOrderId);
+
+    if (wallet.cash_balance.sub(reserved.cash).lessThan(trade.amount)) {
+      return this.reject(tx, trade, INSUFFICIENT_FUNDS, existingOrderId);
     }
 
     await tx.wallet.update({
@@ -197,13 +407,14 @@ export class OrdersService {
 
     await this.addToPosition(tx, trade);
 
-    return this.fill(tx, trade);
+    return this.fill(tx, trade, existingOrderId);
   }
 
   private async sell(
     tx: Prisma.TransactionClient,
     wallet: LockedWallet,
     trade: Trade,
+    existingOrderId?: string,
   ): Promise<Order> {
     // Safe to read without its own lock: we already hold the wallet lock
     const position = await tx.position.findUnique({
@@ -211,9 +422,10 @@ export class OrdersService {
         userId_stockId: { userId: trade.userId, stockId: trade.stockId },
       },
     });
+    const reserved = await this.reserved(tx, trade, existingOrderId);
 
-    if (!position || position.quantity < trade.quantity) {
-      return this.reject(tx, trade, INSUFFICIENT_SHARES);
+    if (!position || position.quantity - reserved.shares < trade.quantity) {
+      return this.reject(tx, trade, INSUFFICIENT_SHARES, existingOrderId);
     }
 
     await tx.wallet.update({
@@ -234,7 +446,19 @@ export class OrdersService {
       });
     }
 
-    return this.fill(tx, trade);
+    return this.fill(tx, trade, existingOrderId);
+  }
+
+  private async sharesOwned(
+    tx: Prisma.TransactionClient,
+    trade: Trade,
+  ): Promise<number> {
+    const position = await tx.position.findUnique({
+      where: {
+        userId_stockId: { userId: trade.userId, stockId: trade.stockId },
+      },
+    });
+    return position?.quantity ?? 0;
   }
 
   private async addToPosition(
@@ -268,43 +492,52 @@ export class OrdersService {
     });
   }
 
+  // The columns every new order row starts with
+  private orderFields(trade: Trade) {
+    return {
+      userId: trade.userId,
+      stockId: trade.stockId,
+      side: trade.side,
+      type: trade.type,
+      quantity: trade.quantity,
+      limitPrice: trade.limitPrice,
+      idempotencyKey: trade.idempotencyKey,
+    };
+  }
+
   // A rejection is a business outcome, not an error: we save the order and
   // return it. Throwing here would roll back and lose the REJECTED record.
   private reject(
     tx: Prisma.TransactionClient,
     trade: Trade,
     reason: string,
+    existingOrderId?: string,
   ): Promise<Order> {
-    return tx.order.create({
-      data: {
-        userId: trade.userId,
-        stockId: trade.stockId,
-        side: trade.side,
-        quantity: trade.quantity,
-        status: OrderStatus.REJECTED,
-        rejectReason: reason,
-        idempotencyKey: trade.idempotencyKey,
-      },
-    });
+    const data = { status: OrderStatus.REJECTED, rejectReason: reason };
+
+    return existingOrderId
+      ? tx.order.update({ where: { id: existingOrderId }, data })
+      : tx.order.create({ data: { ...this.orderFields(trade), ...data } });
   }
 
-  // Records a successful execution: the FILLED order plus its audit-trail row
+  // Records a successful execution: the FILLED order plus its audit-trail
+  // row. A waiting LIMIT order is updated; anything else is created FILLED.
   private async fill(
     tx: Prisma.TransactionClient,
     trade: Trade,
+    existingOrderId?: string,
   ): Promise<Order> {
-    const order = await tx.order.create({
-      data: {
-        userId: trade.userId,
-        stockId: trade.stockId,
-        side: trade.side,
-        quantity: trade.quantity,
-        price: trade.price,
-        status: OrderStatus.FILLED,
-        executedAt: new Date(),
-        idempotencyKey: trade.idempotencyKey,
-      },
-    });
+    const data = {
+      price: trade.price,
+      status: OrderStatus.FILLED,
+      executedAt: new Date(),
+    };
+
+    const order = existingOrderId
+      ? await tx.order.update({ where: { id: existingOrderId }, data })
+      : await tx.order.create({
+          data: { ...this.orderFields(trade), ...data },
+        });
 
     await tx.transaction.create({
       data: {

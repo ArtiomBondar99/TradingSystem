@@ -1,10 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  Matches,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { OrderSide, OrderType } from '../../generated/prisma/client.js';
 
 // A sanity cap, not a business rule: stops typos like 10000000 from reaching the DB
 export const MAX_ORDER_QUANTITY = 1_000_000;
+export const MAX_LIMIT_PRICE = 1_000_000;
 
 export class CreateOrderDto {
   /** Case-insensitive: "aapl" works too. @example AAPL */
@@ -20,10 +30,10 @@ export class CreateOrderDto {
   @IsEnum(OrderSide, { message: 'side must be BUY or SELL' })
   side: OrderSide;
 
-  // Only MARKET orders exist for now, so it's optional and defaults to MARKET
-  @ApiPropertyOptional()
+  // Optional: without it, the order is a MARKET order
+  @ApiPropertyOptional({ enum: OrderType, default: OrderType.MARKET })
   @IsOptional()
-  @IsEnum(OrderType, { message: 'type must be MARKET' })
+  @IsEnum(OrderType, { message: 'type must be MARKET or LIMIT' })
   type: OrderType = OrderType.MARKET;
 
   /** @example 10 */
@@ -32,4 +42,18 @@ export class CreateOrderDto {
   @Min(1, { message: 'quantity must be at least 1' })
   @Max(MAX_ORDER_QUANTITY)
   quantity: number;
+
+  /**
+   * LIMIT orders only: buy at this price or lower, sell at this price or
+   * higher. Dollars and cents (at most 2 decimals). @example 185.5
+   */
+  // Required for LIMIT; a MARKET order with one is refused by the service
+  @ValidateIf((order: CreateOrderDto) => order.type === OrderType.LIMIT)
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'limitPrice must be a price with at most 2 decimals' },
+  )
+  @Min(0.01, { message: 'limitPrice must be at least 0.01' })
+  @Max(MAX_LIMIT_PRICE)
+  limitPrice?: number;
 }

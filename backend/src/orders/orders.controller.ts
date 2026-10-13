@@ -2,6 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
+  Param,
   ParseUUIDPipe,
   Post,
   Query,
@@ -9,8 +12,11 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiHeader,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -35,7 +41,7 @@ export class OrdersController {
   @ApiCreatedResponse({
     type: OrderResponseDto,
     description:
-      'The order was saved. Check status: FILLED, or REJECTED with a rejectReason (INSUFFICIENT_FUNDS / INSUFFICIENT_SHARES).',
+      'The order was saved. Check status: FILLED; PENDING (a LIMIT order waiting for its price); or REJECTED with a rejectReason (INSUFFICIENT_FUNDS / INSUFFICIENT_SHARES).',
   })
   @ApiHeader({
     name: 'Idempotency-Key',
@@ -59,5 +65,22 @@ export class OrdersController {
     @Query() query: ListOrdersQueryDto,
   ): Promise<OrderPageDto> {
     return this.ordersService.getMyOrders(userId, query);
+  }
+
+  // A state change, not a deletion: the order stays in the history as
+  // CANCELLED, so this is POST .../cancel rather than DELETE
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: OrderResponseDto })
+  @ApiNotFoundResponse({ description: 'No such order for this user' })
+  @ApiConflictResponse({
+    description:
+      'The order is not open (already FILLED, REJECTED or CANCELLED)',
+  })
+  cancelOrder(
+    @CurrentUser('userId') userId: string,
+    @Param('id', ParseUUIDPipe) orderId: string,
+  ): Promise<OrderResponseDto> {
+    return this.ordersService.cancelOrder(userId, orderId);
   }
 }

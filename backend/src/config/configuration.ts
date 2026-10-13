@@ -35,6 +35,15 @@ export default () => ({
       10,
     ),
   },
+  orders: {
+    // How often waiting LIMIT orders are checked against the current price.
+    // 0 = off: the default in tests, which run the matcher themselves.
+    matchIntervalMs: parseInt(
+      process.env.LIMIT_ORDER_MATCH_INTERVAL_MS ??
+        (process.env.NODE_ENV === 'test' ? '0' : '2000'),
+      10,
+    ),
+  },
   cors: {
     // Comma-separated browser origins allowed to call the API, e.g.
     // "http://localhost:5173,https://app.example.com". Empty = no CORS.
