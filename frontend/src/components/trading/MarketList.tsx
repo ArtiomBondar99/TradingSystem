@@ -1,4 +1,5 @@
 import { Link, useLocation, useParams } from 'react-router';
+import { useLiveSymbols } from '../../hooks/useRealtime';
 import { formatMoney } from '../../lib/format';
 import type { Stock } from '../../services/types';
 
@@ -9,6 +10,8 @@ export function MarketList({ stocks }: Props) {
   const { symbol: activeSymbol } = useParams();
   // Keep the query string (?tf=1h): switching stocks keeps the timeframe
   const { search } = useLocation();
+  // Live prices for the listed stocks (the server allows 30 per connection)
+  useLiveSymbols(stocks.slice(0, 30).map((stock) => stock.symbol));
 
   return (
     <ul className="max-h-[560px] divide-y divide-line overflow-y-auto text-sm">

@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { getStocks } from '../services/stocks.service';
+import { useIsLive } from './useRealtimeStore';
 
 export function useStocks() {
+  const live = useIsLive();
   return useQuery({
     queryKey: ['stocks'],
     queryFn: getStocks,
-    // The backend refreshes prices every 5s (WebSocket push in 3.4)
-    refetchInterval: 10_000,
+    // Live: prices arrive over the WebSocket; the rare refetch only catches
+    // anything missed. Otherwise poll.
+    refetchInterval: live ? 60_000 : 10_000,
   });
 }

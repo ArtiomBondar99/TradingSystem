@@ -2,6 +2,7 @@ import { useMemo, useState, type SubmitEvent } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useMarketStatus } from '../../hooks/useMarketData';
 import { useOrderPreview, usePlaceOrder } from '../../hooks/useOrders';
+import { useRealtimeStore } from '../../hooks/useRealtimeStore';
 import { formatMoney } from '../../lib/format';
 import type {
   Order,
@@ -135,6 +136,10 @@ export function OrderPanel({ symbol, quote }: Props) {
       {
         onSuccess: (placed) => {
           setResult(placed);
+          // Shown right here: no "order filled" pop-up for it as well
+          if (placed.status === 'FILLED') {
+            useRealtimeStore.getState().markFillSeen(placed.id);
+          }
           setIdempotencyKey(crypto.randomUUID());
         },
       },

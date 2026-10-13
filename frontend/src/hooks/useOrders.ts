@@ -12,6 +12,7 @@ import {
   previewOrder,
 } from '../services/orders.service';
 import type { PlaceOrderRequest } from '../services/types';
+import { useIsLive } from './useRealtimeStore';
 
 // After any change to orders, everything they touch is out of date.
 // useCallback: the same function every render, so it can be an effect dependency.
@@ -27,14 +28,16 @@ function useRefreshAfterTrade() {
   );
 }
 
-// LIMIT orders waiting for their price. Polled every 3s, since the
-// backend's matcher can fill them at any moment (WebSocket push later).
+// LIMIT/STOP orders waiting for their price. The matcher can fill them at
+// any moment: the WebSocket pushes the fill, polling is the fallback.
 export function useOpenOrders() {
   const refresh = useRefreshAfterTrade();
+  const live = useIsLive();
   const query = useQuery({
     queryKey: ['orders', 'open'],
     queryFn: () => getOrders({ status: 'PENDING', limit: 50 }),
-    refetchInterval: 3_000,
+    // Live: a fill is pushed (and refreshes this list); polling is the fallback
+    refetchInterval: live ? 15_000 : 3_000,
   });
 
   // An order that left the open list was just filled (or cancelled):

@@ -7,9 +7,11 @@ import {
   searchSymbols,
 } from '../services/marketData.service';
 import type { Timeframe } from '../services/types';
+import { useIsLive } from './useRealtimeStore';
 
-// Polling for now; a WebSocket push replaces it in step 3.4. Slow timeframes
-// change slowly, so they are refreshed less often (fewer backend requests).
+// New bars come from polling (the WebSocket only pushes the latest price,
+// which PriceChart applies to the last bar). Slow timeframes change slowly,
+// so they are refreshed less often (fewer backend requests).
 const CANDLES_REFRESH_MS: Record<Timeframe, number> = {
   '1m': 5_000,
   '5m': 10_000,
@@ -47,10 +49,13 @@ export function useCandles(symbol: string, timeframe: Timeframe) {
 }
 
 export function useQuote(symbol: string) {
+  const live = useIsLive();
   return useQuery({
     queryKey: ['market-data', 'quote', symbol],
     queryFn: () => getQuote(symbol),
-    refetchInterval: 5_000,
+    // While the WebSocket is up it pushes every change into this cache
+    // entry; polling is only the fallback
+    refetchInterval: live ? false : 5_000,
   });
 }
 

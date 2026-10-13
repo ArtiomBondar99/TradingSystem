@@ -1,9 +1,12 @@
 import { NavLink, Outlet } from 'react-router';
 import { useCurrentUser } from '../../hooks/useAuth';
+import { useRealtimeConnection } from '../../hooks/useRealtime';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { usePortfolio } from '../../hooks/usePortfolio';
 import { formatMoney } from '../../lib/format';
+import { FillToasts } from '../trading/FillToasts';
 import { SymbolSearch } from '../trading/SymbolSearch';
+import { LiveStatus } from './LiveStatus';
 import { Logo } from './Logo';
 import { SimulatedBadge } from './SimulatedBadge';
 
@@ -18,6 +21,8 @@ export function AppLayout() {
   const logout = useAuthStore((state) => state.logout);
   const { data: user } = useCurrentUser();
   const { data: portfolio } = usePortfolio();
+  // One WebSocket for the whole logged-in app
+  useRealtimeConnection();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -49,6 +54,7 @@ export function AppLayout() {
           </div>
 
           <div className="ml-auto flex items-center gap-4 text-sm">
+            <LiveStatus />
             <span className="hidden md:inline">
               <SimulatedBadge />
             </span>
@@ -88,6 +94,8 @@ export function AppLayout() {
       <main className="flex-1 p-4">
         <Outlet />
       </main>
+
+      <FillToasts />
     </div>
   );
 }

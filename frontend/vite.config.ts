@@ -14,6 +14,8 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // The WebSocket (backend RealtimeGateway), same origin as the page
+      '/ws': { target: 'ws://localhost:3000', ws: true },
     },
   },
 });

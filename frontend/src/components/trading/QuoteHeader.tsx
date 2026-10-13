@@ -1,3 +1,6 @@
+import { useMarketStatus } from '../../hooks/useMarketData';
+import { useNow } from '../../hooks/useNow';
+import { useIsLive, useRealtimeStore } from '../../hooks/useRealtimeStore';
 import type { Quote } from '../../services/types';
 import { DataSourceBadge } from '../charts/DataSourceBadge';
 import { MarketStatusBadge } from './MarketStatusBadge';
@@ -18,7 +21,22 @@ const timeFormat = new Intl.DateTimeFormat('en-US', {
 });
 
 // Symbol, last price and today's change, above the chart
+// While the market is open the simulated price changes every second; no
+// update for this long means something is wrong upstream
+const STALE_AFTER_MS = 15_000;
+
 export function QuoteHeader({ symbol, name, quote }: Props) {
+  const live = useIsLive();
+  const lastQuoteAt = useRealtimeStore((state) => state.lastQuoteAt[symbol]);
+  const { data: market } = useMarketStatus();
+  const now = useNow(5_000);
+  // Stale only means something while prices should move: live and open
+  const stale =
+    live &&
+    market?.isOpen === true &&
+    lastQuoteAt !== undefined &&
+    now - lastQuoteAt > STALE_AFTER_MS;
+
   const color =
     !quote || quote.change === 0
       ? 'text-muted'
@@ -50,6 +68,14 @@ export function QuoteHeader({ symbol, name, quote }: Props) {
 
       <div className="ml-auto flex flex-wrap items-center gap-3">
         <MarketStatusBadge />
+        {stale && (
+          <span
+            className="rounded border border-warn/40 px-1.5 py-0.5 text-[11px] font-medium text-warn"
+            title={`No price update for ${Math.round((now - lastQuoteAt) / 1000)}s`}
+          >
+            Stale price
+          </span>
+        )}
         {quote && (
           <span className="text-xs text-muted">
             as of {timeFormat.format(new Date(quote.timestamp))} ET
