@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router';
 import { buildChartLayers } from '../components/charts/indicatorLayers';
-import { PriceChart, type ChartType } from '../components/charts/PriceChart';
+import {
+  PriceChart,
+  type ChartType,
+  type TradeMarker,
+} from '../components/charts/PriceChart';
 import { ChartToolbar } from '../components/charts/ChartToolbar';
 import { MarketList } from '../components/trading/MarketList';
 import { OrderPanel } from '../components/trading/OrderPanel';
@@ -15,6 +19,7 @@ import {
   useQuote,
 } from '../hooks/useMarketData';
 import { useIndicators } from '../hooks/useIndicators';
+import { useFilledOrders } from '../hooks/useOrders';
 import { useIndicatorSettings } from '../hooks/useIndicatorSettings';
 import { useStocks } from '../hooks/useStocks';
 import { TIMEFRAMES, type Timeframe } from '../services/types';
@@ -81,6 +86,18 @@ function TradingTerminal({ symbol }: { symbol: string }) {
     ([id, query]) =>
       settings[id as keyof typeof settings].enabled && query.isError,
   )?.[1].error;
+  // The user's fills in this stock, as arrows on the chart
+  const filled = useFilledOrders(symbol);
+  const trades = useMemo<TradeMarker[]>(
+    () =>
+      (filled.data?.items ?? []).map((order) => ({
+        time: Date.parse(order.executedAt ?? order.createdAt) / 1000,
+        side: order.side,
+        quantity: order.quantity,
+      })),
+    [filled.data],
+  );
+
   // Each indicator pane (RSI, MACD) adds height below the price pane
   const chartHeight = 420 + layers.panes.length * 140;
 
@@ -120,6 +137,7 @@ function TradingTerminal({ symbol }: { symbol: string }) {
               watermark={simulated ? 'SIMULATED DATA' : undefined}
               showVolume={settings.volume.enabled}
               layers={layers}
+              trades={trades}
             />
           )}
           {candles.isPending && (

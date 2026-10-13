@@ -17,7 +17,9 @@ const STATUS_STYLES: Record<Order['status'], string> = {
   CANCELLED: 'text-muted',
 };
 
+// New York time, like the chart and the quote header
 const timeFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
   month: 'short',
   day: 'numeric',
   hour: '2-digit',
@@ -70,20 +72,21 @@ export function OrdersList() {
                   </span>{' '}
                   {order.quantity}{' '}
                   <span className="font-medium">{order.symbol}</span>{' '}
-                  <span className="text-muted">
-                    {order.type === 'LIMIT'
-                      ? `limit ${formatMoney(order.limitPrice ?? '0')}`
-                      : 'market'}
-                  </span>
+                  <span className="text-muted">{describeType(order)}</span>
                 </p>
                 <p className="text-muted tabular-nums">
                   <span className={STATUS_STYLES[order.status]}>
                     {order.status}
                   </span>
-                  {order.price && ` at ${formatMoney(order.price)}`} ·{' '}
+                  {order.price && ` at ${formatMoney(order.price)}`}
+                  {order.status === 'FILLED' &&
+                    Number(order.fee) > 0 &&
+                    ` · fee ${formatMoney(order.fee)}`}{' '}
+                  ·{' '}
                   {timeFormat.format(
                     new Date(order.executedAt ?? order.createdAt),
-                  )}
+                  )}{' '}
+                  ET
                 </p>
               </div>
 
@@ -103,6 +106,15 @@ export function OrdersList() {
       )}
     </section>
   );
+}
+
+// 'market', 'limit $180.00', 'stop $170.00'
+function describeType(order: Order): string {
+  if (order.type === 'LIMIT')
+    return `limit ${formatMoney(order.limitPrice ?? '0')}`;
+  if (order.type === 'STOP')
+    return `stop ${formatMoney(order.stopPrice ?? '0')}`;
+  return 'market';
 }
 
 function TabButton({

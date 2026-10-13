@@ -2,6 +2,7 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
   createTextWatermark,
   CrosshairMode,
   HistogramSeries,
@@ -10,6 +11,8 @@ import {
   TickMarkType,
   type IChartApi,
   type IPriceLine,
+  type ISeriesMarkersPluginApi,
+  type SeriesMarker,
   type ISeriesApi,
   type Time,
   type UTCTimestamp,
@@ -33,6 +36,15 @@ type Props = {
   showVolume?: boolean;
   // Indicators, already turned into lines / levels / panes
   layers?: ChartLayers;
+  // The user's executed trades in this stock: arrows on their bars
+  trades?: TradeMarker[];
+};
+
+export type TradeMarker = {
+  // Execution time, Unix seconds
+  time: number;
+  side: 'BUY' | 'SELL';
+  quantity: number;
 };
 
 // Same palette as the Tailwind theme (index.css)
@@ -53,6 +65,7 @@ const VISIBLE_BARS = 120;
 const MAIN_PANE_STRETCH = 3;
 
 const EMPTY_LAYERS: ChartLayers = { overlays: [], levels: [], panes: [] };
+const NO_TRADES: TradeMarker[] = [];
 
 type ChartParts = {
   chart: IChartApi;
@@ -84,6 +97,7 @@ export function PriceChart({
   watermark,
   showVolume = true,
   layers = EMPTY_LAYERS,
+  trades = NO_TRADES,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const partsRef = useRef<ChartParts | null>(null);
@@ -93,6 +107,8 @@ export function PriceChart({
     { series: ISeriesApi<'Candlestick' | 'Line'>; line: IPriceLine }[]
   >([]);
   const panesRef = useRef<PaneState>({ layout: '', series: new Map() });
+  // One markers plugin per main series: candles and line
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time>[]>([]);
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
 
   // 1. Create the chart once, destroy it on unmount
@@ -147,6 +163,11 @@ export function PriceChart({
       setHoveredTime((param.time as number | undefined) ?? null);
     });
 
+    markersRef.current = [
+      createSeriesMarkers(candleSeries, []),
+      createSeriesMarkers(lineSeries, []),
+    ];
+
     partsRef.current = {
       chart,
       candles: candleSeries,
@@ -162,6 +183,7 @@ export function PriceChart({
       overlays.clear();
       panes.series.clear();
       priceLinesRef.current = [];
+      markersRef.current = [];
       chart.remove();
     };
   }, []);
@@ -283,6 +305,30 @@ export function PriceChart({
     parts?.candles.applyOptions({ visible: chartType === 'candles' });
     parts?.line.applyOptions({ visible: chartType === 'line' });
   }, [chartType]);
+
+  // Buy/sell arrows. A trade belongs to the last bar that started at or before
+  // it: the same rule works for 1m, 1h, 1D and 1W bars.
+  useEffect(() => {
+    const times = candles.map((c) => c.time);
+    const markers: SeriesMarker<Time>[] = [];
+    for (const trade of trades) {
+      const barTime = barAtOrBefore(times, trade.time);
+      if (barTime === undefined) continue; // older than the chart
+      const buy = trade.side === 'BUY';
+      markers.push({
+        time: barTime as UTCTimestamp,
+        position: buy ? 'belowBar' : 'aboveBar',
+        shape: buy ? 'arrowUp' : 'arrowDown',
+        color: buy ? COLORS.up : COLORS.down,
+        text: `${buy ? 'B' : 'S'} ${trade.quantity}`,
+      });
+    }
+    // The library wants them in time order
+    markers.sort((a, b) => (a.time as number) - (b.time as number));
+    for (const plugin of markersRef.current) {
+      plugin.setMarkers(markers);
+    }
+  }, [trades, candles]);
 
   // 6. Volume on/off
   useEffect(() => {
@@ -461,6 +507,23 @@ export function PriceChart({
 }
 
 // The point at `time`, else the last one
+// Binary search in ascending bar times: the last one <= time
+function barAtOrBefore(times: number[], time: number): number | undefined {
+  let low = 0;
+  let high = times.length - 1;
+  let found: number | undefined;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (times[middle] <= time) {
+      found = times[middle];
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return found;
+}
+
 function valueAt(
   points: IndicatorPoint[],
   time: number | undefined,

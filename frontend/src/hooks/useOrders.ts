@@ -1,6 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
-import { cancelOrder, getOrders, placeOrder } from '../services/orders.service';
+import {
+  cancelOrder,
+  getOrders,
+  placeOrder,
+  previewOrder,
+} from '../services/orders.service';
 import type { PlaceOrderRequest } from '../services/types';
 
 // After any change to orders, everything they touch is out of date.
@@ -48,6 +58,30 @@ export function useOrderHistory() {
   return useQuery({
     queryKey: ['orders', 'history'],
     queryFn: () => getOrders({ limit: 20 }),
+  });
+}
+
+// This stock's executed orders: the buy/sell markers on its chart
+export function useFilledOrders(symbol: string) {
+  return useQuery({
+    queryKey: ['orders', 'filled', symbol],
+    queryFn: () => getOrders({ status: 'FILLED', symbol, limit: 100 }),
+  });
+}
+
+/**
+ * The server's estimate for the order being typed. `order` is null while the
+ * form is incomplete. Debounced by the caller, so typing "100" asks once.
+ */
+export function useOrderPreview(order: PlaceOrderRequest | null) {
+  return useQuery({
+    queryKey: ['orders', 'preview', order],
+    queryFn: () => previewOrder(order as PlaceOrderRequest),
+    enabled: order !== null,
+    // The market moves: refresh the estimate while the form is open
+    refetchInterval: 5_000,
+    // Keep showing the last estimate while the next one loads
+    placeholderData: keepPreviousData,
   });
 }
 

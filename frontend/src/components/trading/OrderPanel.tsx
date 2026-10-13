@@ -1,8 +1,15 @@
-import { useState, type SubmitEvent } from 'react';
-import { useOpenOrders, usePlaceOrder } from '../../hooks/useOrders';
-import { usePortfolio } from '../../hooks/usePortfolio';
+import { useMemo, useState, type SubmitEvent } from 'react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useMarketStatus } from '../../hooks/useMarketData';
+import { useOrderPreview, usePlaceOrder } from '../../hooks/useOrders';
 import { formatMoney } from '../../lib/format';
-import type { Order, OrderSide, OrderType, Quote } from '../../services/types';
+import type {
+  Order,
+  OrderSide,
+  OrderType,
+  PlaceOrderRequest,
+  Quote,
+} from '../../services/types';
 import { ErrorMessage } from '../ui/ErrorMessage';
 
 type Props = {
@@ -13,20 +20,36 @@ type Props = {
 const REJECT_REASONS: Record<string, string> = {
   INSUFFICIENT_FUNDS: 'Not enough buying power',
   INSUFFICIENT_SHARES: 'Not enough shares (open sell orders reserve theirs)',
+  MARKET_CLOSED:
+    'The market is closed: market orders execute only while it is open',
 };
 
-const money = (value: number) => formatMoney(value.toFixed(2));
+const TYPES: { value: OrderType; label: string }[] = [
+  { value: 'MARKET', label: 'Market' },
+  { value: 'LIMIT', label: 'Limit' },
+  { value: 'STOP', label: 'Stop' },
+];
+
+const nextOpenFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
 
 /**
- * Buy / sell form. It only describes what the user wants; the backend
- * decides the price, checks the cash and shares, and executes. The numbers
- * shown here are estimates for the user, never sent as facts.
+ * Buy / sell form. It only describes what the user wants. The backend
+ * decides the price, applies fees and slippage, checks the cash and shares,
+ * and executes. Every number shown here comes from the server's preview
+ * (POST /orders/preview), so the trading rules exist in one place only.
  */
 export function OrderPanel({ symbol, quote }: Props) {
   const [side, setSide] = useState<OrderSide>('BUY');
   const [type, setType] = useState<OrderType>('MARKET');
   const [quantity, setQuantity] = useState('1');
-  const [limitPrice, setLimitPrice] = useState('');
+  // The limit price for LIMIT, the stop price for STOP
+  const [price, setPrice] = useState('');
   // One key per intended order. A retry after a network error reuses it, so
   // the server can't execute the same order twice; any change to the form
   // (a different order) or a successful submit gets a new one.
@@ -35,8 +58,7 @@ export function OrderPanel({ symbol, quote }: Props) {
   );
   const [result, setResult] = useState<Order | null>(null);
 
-  const portfolio = usePortfolio();
-  const openOrders = useOpenOrders();
+  const marketStatus = useMarketStatus();
   const placeOrder = usePlaceOrder();
 
   // Any edit = a different order: new key, and the old result is cleared
@@ -48,68 +70,81 @@ export function OrderPanel({ symbol, quote }: Props) {
       setResult(null);
     };
 
-  const marketPrice = quote?.price;
   const qty = Number(quantity);
-  const limit = Number(limitPrice);
+  const priceValue = Number(price);
   const validQuantity = Number.isInteger(qty) && qty >= 1;
-  const validLimit =
-    type === 'MARKET' || (limit > 0 && /^\d+(\.\d{1,2})?$/.test(limitPrice));
-  const pricePerShare = type === 'LIMIT' ? limit : (marketPrice ?? 0);
+  const validPrice =
+    type === 'MARKET' || (priceValue > 0 && /^\d+(\.\d{1,2})?$/.test(price));
 
-  // Same rule as the backend: open orders reserve cash (BUY) or shares (SELL)
-  const open = openOrders.data?.items ?? [];
-  const reservedCash = open
-    .filter((o) => o.side === 'BUY' && o.limitPrice)
-    .reduce((sum, o) => sum + Number(o.limitPrice) * o.quantity, 0);
-  const reservedShares = open
-    .filter((o) => o.side === 'SELL' && o.symbol === symbol)
-    .reduce((sum, o) => sum + o.quantity, 0);
-  const buyingPower = Number(portfolio.data?.cashBalance ?? 0) - reservedCash;
-  const owned =
-    portfolio.data?.positions.find((p) => p.symbol === symbol)?.quantity ?? 0;
-  const sellable = owned - reservedShares;
-
-  const maxQuantity =
-    side === 'BUY'
-      ? pricePerShare > 0
-        ? Math.floor(buyingPower / pricePerShare)
-        : 0
-      : sellable;
-
-  // What will happen with this limit, in words
-  let limitHint: string | null = null;
-  if (type === 'LIMIT' && validLimit && marketPrice !== undefined) {
-    const fillsNow =
-      side === 'BUY' ? marketPrice <= limit : marketPrice >= limit;
-    limitHint = fillsNow
-      ? `Fills now at the market price (${side === 'BUY' ? 'at or below' : 'at or above'} your limit)`
-      : `Waits until ${symbol} is ${side === 'BUY' ? 'at or below' : 'at or above'} ${money(limit)}`;
-  }
-
-  function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault();
-    placeOrder.mutate(
-      {
-        order: {
+  // The order as it would be sent; null while the form is incomplete
+  const order: PlaceOrderRequest | null =
+    validQuantity && validPrice
+      ? {
           symbol,
           side,
           type,
           quantity: qty,
-          ...(type === 'LIMIT' && { limitPrice: limit }),
-        },
-        idempotencyKey,
-      },
+          ...(type === 'LIMIT' && { limitPrice: priceValue }),
+          ...(type === 'STOP' && { stopPrice: priceValue }),
+        }
+      : null;
+
+  // Debounce a string, not the object: a new object every render would
+  // restart the timer forever. The string only changes with the content.
+  const orderKey = order && JSON.stringify(order);
+  const debouncedKey = useDebouncedValue(orderKey, 300);
+  const previewInput = useMemo(
+    () =>
+      debouncedKey ? (JSON.parse(debouncedKey) as PlaceOrderRequest) : null,
+    [debouncedKey],
+  );
+  const preview = useOrderPreview(previewInput);
+  // The estimate describes exactly what's in the form (not a moment ago)
+  const upToDate = preview.data !== undefined && debouncedKey === orderKey;
+  const estimate = upToDate ? preview.data : undefined;
+
+  const buying = side === 'BUY';
+  const marketClosed = marketStatus.data?.isOpen === false;
+
+  // Most shares the buying power (or the position) allows
+  let maxQuantity = 0;
+  if (preview.data) {
+    if (buying) {
+      const perShare = Number(preview.data.estimatedPrice);
+      const room =
+        Number(preview.data.buyingPower) - Number(preview.data.estimatedFee);
+      maxQuantity = perShare > 0 ? Math.max(Math.floor(room / perShare), 0) : 0;
+    } else {
+      maxQuantity = preview.data.sellableShares;
+    }
+  }
+
+  function switchType(next: OrderType) {
+    edit(setType)(next);
+    // Start the price field at the current price, the usual starting point
+    if (next !== 'MARKET' && !price && quote) {
+      setPrice(quote.price.toFixed(2));
+    }
+  }
+
+  function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order) return;
+    placeOrder.mutate(
+      { order, idempotencyKey },
       {
-        onSuccess: (order) => {
-          setResult(order);
+        onSuccess: (placed) => {
+          setResult(placed);
           setIdempotencyKey(crypto.randomUUID());
         },
       },
     );
   }
 
-  const buying = side === 'BUY';
-  const accent = buying ? 'bg-up' : 'bg-down';
+  const priceLabel =
+    type === 'LIMIT'
+      ? `Limit price (${buying ? 'highest you pay' : 'lowest you accept'})`
+      : `Stop price (${buying ? 'buy when it rises to' : 'sell if it falls to'})`;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-4 text-sm">
@@ -132,30 +167,34 @@ export function OrderPanel({ symbol, quote }: Props) {
         ))}
       </div>
 
-      {/* Market / Limit */}
+      {/* Market / Limit / Stop */}
       <div className="flex gap-1 text-xs">
-        {(['MARKET', 'LIMIT'] as const).map((option) => (
+        {TYPES.map((option) => (
           <button
-            key={option}
+            key={option.value}
             type="button"
-            aria-pressed={type === option}
-            onClick={() => {
-              edit(setType)(option);
-              // Start the limit at the current price, the usual starting point
-              if (option === 'LIMIT' && !limitPrice && marketPrice) {
-                setLimitPrice(marketPrice.toFixed(2));
-              }
-            }}
+            aria-pressed={type === option.value}
+            onClick={() => switchType(option.value)}
             className={`rounded px-2 py-1 ${
-              type === option
+              type === option.value
                 ? 'bg-panel-hover text-fg'
                 : 'text-muted hover:text-fg'
             }`}
           >
-            {option === 'MARKET' ? 'Market' : 'Limit'}
+            {option.label}
           </button>
         ))}
       </div>
+
+      {marketClosed && marketStatus.data && (
+        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          Market closed until{' '}
+          {nextOpenFormat.format(new Date(marketStatus.data.nextOpen))} ET.{' '}
+          {type === 'MARKET'
+            ? 'Market orders are rejected now; a limit or stop order can wait for the open.'
+            : 'This order will wait for the open.'}
+        </p>
+      )}
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted">Quantity (shares)</span>
@@ -181,59 +220,88 @@ export function OrderPanel({ symbol, quote }: Props) {
         </div>
       </label>
 
-      {type === 'LIMIT' && (
+      {type !== 'MARKET' && (
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted">
-            Limit price ({buying ? 'highest you pay' : 'lowest you accept'})
-          </span>
+          <span className="text-xs text-muted">{priceLabel}</span>
           <input
             type="number"
             inputMode="decimal"
             min={0.01}
             step={0.01}
             required
-            value={limitPrice}
-            onChange={(e) => edit(setLimitPrice)(e.target.value)}
+            value={price}
+            onChange={(e) => edit(setPrice)(e.target.value)}
             className="rounded border border-line bg-surface px-3 py-2 tabular-nums outline-none focus:border-accent"
           />
-          {limitHint && <span className="text-xs text-muted">{limitHint}</span>}
         </label>
       )}
 
-      <dl className="flex flex-col gap-1 border-t border-line pt-3 text-xs tabular-nums">
+      {estimate && order && (
+        <p className="text-xs text-muted">
+          {describe(order, estimate.executesNow, estimate.marketOpen)}
+        </p>
+      )}
+
+      <dl
+        className={`flex flex-col gap-1 border-t border-line pt-3 text-xs tabular-nums transition-opacity ${
+          upToDate ? '' : 'opacity-50'
+        }`}
+      >
         <Row
           label="Market price"
-          value={marketPrice !== undefined ? money(marketPrice) : '—'}
+          value={quote ? formatMoney(quote.price.toFixed(2)) : '—'}
         />
         <Row
-          label={buying ? 'Estimated cost' : 'Estimated proceeds'}
-          value={
-            validQuantity && pricePerShare > 0
-              ? money(qty * pricePerShare)
-              : '—'
+          label={
+            estimate?.executesNow
+              ? 'Est. fill price (incl. slippage)'
+              : 'Est. fill price'
           }
+          value={estimate ? formatMoney(estimate.estimatedPrice) : '—'}
+        />
+        <Row
+          label="Commission"
+          value={estimate ? formatMoney(estimate.estimatedFee) : '—'}
+        />
+        <Row
+          label={buying ? 'Est. total cost' : 'Est. total proceeds'}
+          value={estimate ? formatMoney(estimate.estimatedTotal) : '—'}
+          strong
         />
         {buying ? (
-          <Row label="Buying power" value={money(buyingPower)} />
+          <Row
+            label="Buying power"
+            value={preview.data ? formatMoney(preview.data.buyingPower) : '—'}
+          />
         ) : (
           <Row
             label="Shares you can sell"
-            value={`${sellable}${reservedShares > 0 ? ` (${reservedShares} in open orders)` : ''}`}
+            value={preview.data ? String(preview.data.sellableShares) : '—'}
           />
         )}
       </dl>
 
+      {estimate?.blockedReason && (
+        <p className="text-xs text-down">
+          {REJECT_REASONS[estimate.blockedReason] ?? estimate.blockedReason}
+        </p>
+      )}
+
       <button
         type="submit"
         disabled={
-          !validQuantity || !validLimit || placeOrder.isPending || !quote
+          !order || placeOrder.isPending || Boolean(estimate?.blockedReason)
         }
-        className={`rounded py-2.5 font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 ${accent}`}
+        className={`rounded py-2.5 font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 ${
+          buying ? 'bg-up' : 'bg-down'
+        }`}
       >
         {placeOrder.isPending
           ? 'Sending…'
           : `${buying ? 'Buy' : 'Sell'} ${validQuantity ? qty : ''} ${symbol}${
-              type === 'LIMIT' && validLimit ? ` · limit ${money(limit)}` : ''
+              type !== 'MARKET' && validPrice
+                ? ` · ${type.toLowerCase()} ${formatMoney(priceValue.toFixed(2))}`
+                : ''
             }`}
       </button>
 
@@ -241,18 +309,47 @@ export function OrderPanel({ symbol, quote }: Props) {
       {result && <OrderResult order={result} />}
 
       <p className="text-[11px] leading-snug text-muted">
-        Paper trading: virtual money, simulated execution at the server's last
-        price. No order reaches a real exchange.
+        Paper trading: virtual money, simulated execution with slippage and a
+        commission of $0.005/share (min $1). No order reaches a real exchange.
       </p>
     </form>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+// What will happen, in words
+function describe(
+  order: PlaceOrderRequest,
+  executesNow: boolean,
+  marketOpen: boolean,
+): string {
+  if (executesNow) {
+    return 'Executes now at the market price.';
+  }
+  if (!marketOpen) {
+    return order.type === 'MARKET'
+      ? 'Would be rejected: the market is closed.'
+      : 'Waits for the market to open.';
+  }
+  const at = formatMoney((order.limitPrice ?? order.stopPrice ?? 0).toFixed(2));
+  if (order.type === 'LIMIT') {
+    return `Waits until ${order.symbol} is at or ${order.side === 'BUY' ? 'below' : 'above'} ${at}.`;
+  }
+  return `Becomes a market order when ${order.symbol} ${order.side === 'BUY' ? 'rises' : 'falls'} to ${at}.`;
+}
+
+function Row({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
     <div className="flex justify-between gap-2">
       <dt className="text-muted">{label}</dt>
-      <dd>{value}</dd>
+      <dd className={strong ? 'font-semibold' : ''}>{value}</dd>
     </div>
   );
 }
@@ -268,21 +365,21 @@ function OrderResult({ order }: { order: Order }) {
         className="rounded border border-up/40 bg-up/10 px-3 py-2 text-up"
       >
         {verb} {order.quantity} {order.symbol} at{' '}
-        {formatMoney(order.price ?? '0')}
+        {formatMoney(order.price ?? '0')} · fee {formatMoney(order.fee)}
       </p>
     );
   }
   if (order.status === 'PENDING') {
+    const word = order.side === 'BUY' ? 'buy' : 'sell';
     return (
       <p
         role="status"
         className="rounded border border-accent/40 bg-accent/10 px-3 py-2 text-fg"
       >
-        Limit order placed: {order.side === 'BUY' ? 'buy' : 'sell'}{' '}
-        {order.quantity} {order.symbol} at{' '}
-        {formatMoney(order.limitPrice ?? '0')} or{' '}
-        {order.side === 'BUY' ? 'lower' : 'higher'}. It waits below in Open
-        orders.
+        {order.type === 'STOP'
+          ? `Stop order placed: ${word} ${order.quantity} ${order.symbol} at market when it reaches ${formatMoney(order.stopPrice ?? '0')}.`
+          : `Limit order placed: ${word} ${order.quantity} ${order.symbol} at ${formatMoney(order.limitPrice ?? '0')} or ${order.side === 'BUY' ? 'lower' : 'higher'}.`}{' '}
+        It waits below in Open orders.
       </p>
     );
   }

@@ -55,7 +55,9 @@ export type Portfolio = {
 // ----- Orders (backend/src/orders) -----
 
 export type OrderSide = 'BUY' | 'SELL';
-export type OrderType = 'MARKET' | 'LIMIT';
+// MARKET: now. LIMIT: at the limit or better. STOP: at market, once the
+// price crosses the stop (e.g. a stop-loss).
+export type OrderType = 'MARKET' | 'LIMIT' | 'STOP';
 // PENDING = a LIMIT order waiting for its price
 export type OrderStatus = 'PENDING' | 'FILLED' | 'REJECTED' | 'CANCELLED';
 
@@ -66,8 +68,11 @@ export type Order = {
   type: OrderType;
   quantity: number;
   limitPrice: string | null;
+  stopPrice: string | null;
   // Execution price, once FILLED
   price: string | null;
+  // Commission charged on the fill
+  fee: string;
   status: OrderStatus;
   rejectReason: string | null;
   createdAt: string;
@@ -84,6 +89,22 @@ export type PlaceOrderRequest = {
   type: OrderType;
   quantity: number;
   limitPrice?: number;
+  stopPrice?: number;
+};
+
+// POST /orders/preview: the server's estimate of what the order would do
+export type OrderPreview = {
+  symbol: string;
+  marketPrice: string;
+  marketOpen: boolean;
+  executesNow: boolean;
+  blockedReason: string | null;
+  estimatedPrice: string;
+  estimatedAmount: string;
+  estimatedFee: string;
+  estimatedTotal: string;
+  buyingPower: string;
+  sellableShares: number;
 };
 
 // ----- Market data (backend/src/market-data) -----
