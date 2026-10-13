@@ -7,5 +7,7 @@ export function usePortfolio() {
   return useQuery({
     queryKey: ['portfolio'],
     queryFn: getPortfolio,
+    // Prices move, so market value and P&L do too (WebSocket push in 3.4)
+    refetchInterval: 10_000,
   });
 }

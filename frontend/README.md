@@ -18,9 +18,10 @@ src/
 ├── App.tsx                 # QueryClientProvider + every route
 ├── pages/                  # One component per URL: Login, Register, Dashboard, Trading, Portfolio
 ├── components/
+│   ├── charts/             # PriceChart (Lightweight Charts), toolbar, OHLC legend, data-source badge
 │   ├── layout/             # AppLayout (top bar), AuthLayout, ProtectedRoute, GuestRoute
 │   ├── portfolio/          # PositionsTable
-│   ├── trading/            # MarketList (charts and order panel come next)
+│   ├── trading/            # MarketList, QuoteHeader, SymbolSearch, MarketStatusBadge
 │   └── ui/                 # Panel, StatCard, FormField, ErrorMessage
 ├── hooks/                  # useAuthStore (Zustand: the JWT), TanStack Query hooks
 ├── services/               # Axios instance + one file per backend resource, API types

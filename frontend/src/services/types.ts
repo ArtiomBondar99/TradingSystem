@@ -52,6 +52,68 @@ export type Portfolio = {
   positions: Position[];
 };
 
+// ----- Market data (backend/src/market-data) -----
+// Prices here are numbers: they feed charts and indicators, not balances.
+
+export const TIMEFRAMES = [
+  '1m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '4h',
+  '1D',
+  '1W',
+] as const;
+export type Timeframe = (typeof TIMEFRAMES)[number];
+
+export type DataKind = 'REALTIME' | 'DELAYED' | 'HISTORICAL' | 'SIMULATED';
+
+export type DataSource = {
+  provider: string;
+  kind: DataKind;
+  description: string;
+};
+
+export type MarketDataSource = DataSource & { timeframes: Timeframe[] };
+
+export type Candle = {
+  // Bar start, Unix seconds (UTC); daily/weekly bars: midnight UTC of the date
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+export type CandlesResponse = {
+  symbol: string;
+  timeframe: Timeframe;
+  source: DataSource;
+  candles: Candle[];
+};
+
+export type Quote = {
+  symbol: string;
+  price: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+  timestamp: string;
+  source: DataSource;
+};
+
+export type MarketStatus = {
+  isOpen: boolean;
+  session: 'PRE_MARKET' | 'REGULAR' | 'AFTER_HOURS' | 'CLOSED';
+  timezone: string;
+  nextOpen: string;
+  nextClose: string | null;
+};
+
+export type SymbolSearchResult = { symbol: string; name: string };
+
 // Every error response has this shape (backend AllExceptionsFilter)
 export type ApiErrorBody = {
   statusCode: number;

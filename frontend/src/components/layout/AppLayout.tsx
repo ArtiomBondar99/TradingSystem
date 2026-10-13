@@ -3,6 +3,7 @@ import { useCurrentUser } from '../../hooks/useAuth';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { usePortfolio } from '../../hooks/usePortfolio';
 import { formatMoney } from '../../lib/format';
+import { SymbolSearch } from '../trading/SymbolSearch';
 import { Logo } from './Logo';
 import { SimulatedBadge } from './SimulatedBadge';
 
@@ -42,6 +43,10 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
+
+          <div className="hidden md:block">
+            <SymbolSearch />
+          </div>
 
           <div className="ml-auto flex items-center gap-4 text-sm">
             <span className="hidden md:inline">

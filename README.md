@@ -48,3 +48,9 @@ cd backend
 npm test            # unit tests
 npm run test:e2e    # end-to-end, against the real PostgreSQL and RabbitMQ (docker compose must be up)
 ```
+
+Stop `npm run dev` before running the e2e tests: the dev server updates stock prices every 5 seconds in the same database, and the order tests expect prices that hold still.
+
+## Market data
+
+Prices come from a **simulated** provider (no API key needed), labelled "Simulated data" everywhere in the UI. They follow US market hours (9:30–16:00 New York, trading days only) and stand still while the market is closed. Every 5 seconds the backend copies the latest price into the `stocks` table, and orders execute at that price.

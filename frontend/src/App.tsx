@@ -8,7 +8,6 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Portfolio from './pages/Portfolio';
 import Register from './pages/Register';
-import Trading from './pages/Trading';
 import { queryClient } from './services/queryClient';
 
 // Every URL of the app in one place. Layout routes (no path) wrap their
@@ -29,7 +28,14 @@ const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { path: '/', element: <Dashboard /> },
-          { path: '/trading/:symbol?', element: <Trading /> },
+          {
+            path: '/trading/:symbol?',
+            // Code splitting: the chart library is big (~180 kB), so the
+            // Trading page is downloaded only when someone opens it
+            lazy: async () => ({
+              Component: (await import('./pages/Trading')).default,
+            }),
+          },
           { path: '/portfolio', element: <Portfolio /> },
         ],
       },
