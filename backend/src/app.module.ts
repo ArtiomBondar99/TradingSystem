@@ -22,6 +22,7 @@ import { OrdersModule } from './orders/orders.module.js';
 import { PortfolioModule } from './portfolio/portfolio.module.js';
 import { TransactionsModule } from './transactions/transactions.module.js';
 import { MarketDataModule } from './market-data/market-data.module.js';
+import { IndicatorsModule } from './indicators/indicators.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { CacheModule } from './cache/cache.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
@@ -54,6 +55,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     PortfolioModule,
     TransactionsModule,
     MarketDataModule,
+    IndicatorsModule,
     NotificationsModule,
   ],
   providers: [
