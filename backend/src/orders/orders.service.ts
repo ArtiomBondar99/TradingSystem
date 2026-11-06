@@ -587,6 +587,14 @@ export class OrdersService {
 
     const remaining = position.quantity - trade.quantity;
 
+    // The profit this sale locks in, measured against what the shares cost.
+    // Computed NOW: the average price is known only while the position exists.
+    const realizedPnL = realizedProfit(
+      execution,
+      position.averagePrice,
+      trade.quantity,
+    );
+
     // Selling never changes averagePrice: the shares you keep cost the same.
     // Sold everything? Remove the row, so the portfolio shows only holdings.
     if (remaining === 0) {
@@ -598,7 +606,7 @@ export class OrdersService {
       });
     }
 
-    return this.fill(tx, trade, execution, existingOrderId);
+    return this.fill(tx, trade, execution, existingOrderId, realizedPnL);
   }
 
   private async sharesOwned(
@@ -681,6 +689,8 @@ export class OrdersService {
     trade: Trade,
     execution: Execution,
     existingOrderId?: string,
+    // SELL only
+    realizedPnL: Prisma.Decimal | null = null,
   ): Promise<Order> {
     const data = {
       price: execution.price,
@@ -706,6 +716,7 @@ export class OrdersService {
         price: execution.price,
         amount: execution.amount,
         fee: execution.fee,
+        realizedPnL,
       },
     });
 
@@ -729,6 +740,23 @@ export class OrdersService {
 
     return order;
   }
+}
+
+/**
+ * Realized P&L of a sale: (sale price - average cost) * shares - sale fee.
+ * The average cost has no buy commissions in it (the same convention as the
+ * portfolio's unrealized P&L), so buy fees aren't counted twice anywhere.
+ */
+export function realizedProfit(
+  execution: Pick<Execution, 'price' | 'fee'>,
+  averagePrice: Prisma.Decimal,
+  quantity: number,
+): Prisma.Decimal {
+  return execution.price
+    .sub(averagePrice)
+    .mul(quantity)
+    .sub(execution.fee)
+    .toDecimalPlaces(2);
 }
 
 // Decimals compare with equals(), not ===; both missing also counts as same

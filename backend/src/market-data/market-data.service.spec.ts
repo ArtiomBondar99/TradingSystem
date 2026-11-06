@@ -24,6 +24,7 @@ describe('MarketDataService', () => {
     timeframes: ['1h', '1D'],
     getCandles: jest.fn<MarketDataProvider['getCandles']>(),
     getQuote: jest.fn<MarketDataProvider['getQuote']>(),
+    getQuotes: jest.fn<MarketDataProvider['getQuotes']>(),
   } satisfies MarketDataProvider;
 
   const stocksService = {
@@ -156,12 +157,25 @@ describe('MarketDataService', () => {
       );
     });
 
-    it('getFreshQuote skips the cache (the price sync needs the latest)', async () => {
-      provider.getQuote.mockResolvedValue(quote);
+    it('getFreshQuotes makes one provider call and skips the cache', async () => {
+      provider.getQuotes.mockResolvedValue([quote]);
 
-      await service.getFreshQuote('AAPL');
-
+      await expect(service.getFreshQuotes(['AAPL', 'MSFT'])).resolves.toEqual([
+        quote,
+      ]);
+      expect(provider.getQuotes).toHaveBeenCalledTimes(1);
+      expect(provider.getQuotes).toHaveBeenCalledWith(['AAPL', 'MSFT']);
       expect(cache.remember).not.toHaveBeenCalled();
+    });
+
+    it('getFreshQuotes turns a provider failure into 503', async () => {
+      provider.getQuotes.mockRejectedValue(
+        new MarketDataUnavailableError('Alpaca responded 429'),
+      );
+
+      await expect(service.getFreshQuotes(['AAPL'])).rejects.toThrow(
+        ServiceUnavailableException,
+      );
     });
   });
 

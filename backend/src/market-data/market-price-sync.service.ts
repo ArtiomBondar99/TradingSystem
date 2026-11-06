@@ -62,10 +62,19 @@ export class MarketPriceSyncService
   /** Returns how many prices changed */
   async syncPrices(): Promise<number> {
     const stocks = await this.stocksService.findAll();
+    // ONE provider request for every stock: a real API counts requests
+    const quotes = await this.marketData.getFreshQuotes(
+      stocks.map((stock) => stock.symbol),
+    );
+    const quoteBySymbol = new Map(quotes.map((q) => [q.symbol, q]));
     let updated = 0;
 
     for (const stock of stocks) {
-      const quote = await this.marketData.getFreshQuote(stock.symbol);
+      const quote = quoteBySymbol.get(stock.symbol);
+      // The provider doesn't know this stock: keep its last price
+      if (!quote) {
+        continue;
+      }
       // Cents, as stored (DECIMAL(18,2)); compared as strings, never floats
       const price = quote.price.toFixed(2);
 

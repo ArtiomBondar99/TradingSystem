@@ -13,6 +13,8 @@ export class TransactionResponseDto {
   amount: string;
   // Commission: cash moved = amount + fee (BUY) or amount - fee (SELL)
   fee: string;
+  // SELL: profit locked in by this sale, after its fee. BUY: null.
+  realizedPnL: string | null;
   createdAt: Date;
 
   static fromEntity(transaction: TransactionWithStock): TransactionResponseDto {
@@ -25,6 +27,7 @@ export class TransactionResponseDto {
       price: transaction.price.toFixed(2),
       amount: transaction.amount.toFixed(2),
       fee: transaction.fee.toFixed(2),
+      realizedPnL: transaction.realizedPnL?.toFixed(2) ?? null,
       createdAt: transaction.createdAt,
     };
   }

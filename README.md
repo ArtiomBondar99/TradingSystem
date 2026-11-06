@@ -54,7 +54,12 @@ The e2e tests use their own database (`<POSTGRES_DB>_test`) and Redis keyspace (
 
 ## Market data
 
-Prices come from a **simulated** provider (no API key needed), labelled "Simulated data" everywhere in the UI. They follow US market hours (9:30–16:00 New York, trading days only) and stand still while the market is closed. Every 5 seconds the backend copies the latest price into the `stocks` table, and orders execute at that price.
+Two providers, chosen with `MARKET_DATA_PROVIDER` in `.env`:
+
+- **`simulated`** (default, no API key): generated prices, labelled "Simulated data" everywhere in the UI. They follow US market hours (9:30–16:00 New York, trading days only) and stand still while the market is closed.
+- **`alpaca`**: real prices from [Alpaca](https://alpaca.markets)'s market data API. Needs `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` (a free paper account is enough). The free plan streams only the IEX exchange (~2–3% of US volume), so prices can differ slightly from the consolidated market price; the UI labels them "Real-time" with that note.
+
+Every few seconds (1 s simulated, 2 s Alpaca) the backend copies the latest prices of all stocks into the `stocks` table in a single provider request, and orders execute at that price. The e2e tests always use the simulated provider.
 
 ## Simulated trading rules
 

@@ -68,15 +68,20 @@ describe('PortfolioService', () => {
         // bought 4 @ 50, now 45: -20 (-10%)
         position('TSLA', 4, '50', '45'),
       ],
+      realizedPnL: new Prisma.Decimal('-12.5'),
     });
 
     const portfolio = await service.getMyPortfolio('user-1');
 
     expect(portfolio).toEqual({
       cashBalance: '1000.00',
+      // 1000 / 2280
+      cashPercent: '43.86',
       positionsValue: '1280.00',
       totalValue: '2280.00',
       unrealizedPnL: '80.00',
+      // Past sales: reported as is, separate from the open positions
+      realizedPnL: '-12.50',
       positions: [
         {
           symbol: 'AAPL',
@@ -87,6 +92,8 @@ describe('PortfolioService', () => {
           marketValue: '1100.00',
           unrealizedPnL: '100.00',
           unrealizedPnLPercent: '10.00',
+          // 1100 / 2280
+          allocationPercent: '48.25',
         },
         {
           symbol: 'TSLA',
@@ -97,6 +104,8 @@ describe('PortfolioService', () => {
           marketValue: '180.00',
           unrealizedPnL: '-20.00',
           unrealizedPnLPercent: '-10.00',
+          // 180 / 2280
+          allocationPercent: '7.89',
         },
       ],
     });
@@ -106,23 +115,39 @@ describe('PortfolioService', () => {
     portfolioRepository.findByUserId.mockResolvedValue({
       wallet,
       positions: [],
+      realizedPnL: new Prisma.Decimal(0),
     });
 
     const portfolio = await service.getMyPortfolio('user-1');
 
     expect(portfolio).toEqual({
       cashBalance: '1000.00',
+      cashPercent: '100.00',
       positionsValue: '0.00',
       totalValue: '1000.00',
       unrealizedPnL: '0.00',
+      realizedPnL: '0.00',
       positions: [],
     });
+  });
+
+  it('reports 0% everywhere when there is nothing at all (no division by zero)', async () => {
+    portfolioRepository.findByUserId.mockResolvedValue({
+      wallet: { ...wallet, cashBalance: new Prisma.Decimal(0) },
+      positions: [],
+      realizedPnL: new Prisma.Decimal(0),
+    });
+
+    const portfolio = await service.getMyPortfolio('user-1');
+
+    expect(portfolio.cashPercent).toBe('0.00');
   });
 
   it('throws 404 when the user has no wallet', async () => {
     portfolioRepository.findByUserId.mockResolvedValue({
       wallet: null,
       positions: [],
+      realizedPnL: new Prisma.Decimal(0),
     });
 
     await expect(service.getMyPortfolio('user-1')).rejects.toBeInstanceOf(

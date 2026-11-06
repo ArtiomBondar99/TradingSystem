@@ -121,9 +121,12 @@ export class MarketDataService {
     return { ...quote, source: this.provider.source };
   }
 
-  /** Straight from the provider, no cache: for the price sync */
-  getFreshQuote(symbol: string): Promise<Quote> {
-    return this.callProvider(() => this.provider.getQuote(symbol));
+  /**
+   * Straight from the provider, no cache: for the price sync. One provider
+   * call for all the symbols, whatever their number.
+   */
+  getFreshQuotes(symbols: readonly string[]): Promise<Quote[]> {
+    return this.callProvider(() => this.provider.getQuotes(symbols));
   }
 
   // A provider failure (network, outage, rate limit) becomes a clean 503

@@ -11,3 +11,6 @@ if (!process.env.DATABASE_URL) {
 }
 process.env.DATABASE_URL = testDatabaseUrl(process.env.DATABASE_URL);
 process.env.REDIS_URL = TEST_REDIS_URL;
+// Always the simulated prices, even if .env says alpaca: the tests need
+// predictable prices, no network and no API keys
+process.env.MARKET_DATA_PROVIDER = 'simulated';

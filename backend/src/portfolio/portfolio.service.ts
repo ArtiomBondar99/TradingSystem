@@ -22,7 +22,7 @@ export class PortfolioService {
   constructor(private readonly portfolioRepository: PortfolioRepository) {}
 
   async getMyPortfolio(userId: string): Promise<PortfolioResponseDto> {
-    const { wallet, positions } =
+    const { wallet, positions, realizedPnL } =
       await this.portfolioRepository.findByUserId(userId);
 
     if (!wallet) {
@@ -33,13 +33,16 @@ export class PortfolioService {
 
     const positionsValue = this.sum(valuations.map((v) => v.marketValue));
     const unrealizedPnL = this.sum(valuations.map((v) => v.unrealizedPnL));
+    const totalValue = wallet.cashBalance.add(positionsValue);
 
     return {
       cashBalance: wallet.cashBalance.toFixed(2),
+      cashPercent: percentOf(wallet.cashBalance, totalValue),
       positionsValue: positionsValue.toFixed(2),
-      totalValue: wallet.cashBalance.add(positionsValue).toFixed(2),
+      totalValue: totalValue.toFixed(2),
       unrealizedPnL: unrealizedPnL.toFixed(2),
-      positions: valuations.map((v) => this.toPositionDto(v)),
+      realizedPnL: realizedPnL.toFixed(2),
+      positions: valuations.map((v) => this.toPositionDto(v, totalValue)),
     };
   }
 
@@ -55,7 +58,10 @@ export class PortfolioService {
     };
   }
 
-  private toPositionDto(valuation: Valuation): PositionResponseDto {
+  private toPositionDto(
+    valuation: Valuation,
+    totalValue: Prisma.Decimal,
+  ): PositionResponseDto {
     const { position, marketValue, costBasis, unrealizedPnL } = valuation;
 
     return {
@@ -68,10 +74,17 @@ export class PortfolioService {
       unrealizedPnL: unrealizedPnL.toFixed(2),
       // costBasis is never 0: every buy price is > 0 (DB CHECK constraint)
       unrealizedPnLPercent: unrealizedPnL.div(costBasis).mul(100).toFixed(2),
+      allocationPercent: percentOf(marketValue, totalValue),
     };
   }
 
   private sum(values: Prisma.Decimal[]): Prisma.Decimal {
     return values.reduce((total, v) => total.add(v), new Prisma.Decimal(0));
   }
+}
+
+// part / whole * 100, as "12.34". A whole of 0 (no cash, no shares) has no
+// shares to split: every part is 0%, instead of a division by zero.
+function percentOf(part: Prisma.Decimal, whole: Prisma.Decimal): string {
+  return whole.isZero() ? '0.00' : part.div(whole).mul(100).toFixed(2);
 }

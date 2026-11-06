@@ -23,6 +23,7 @@ describe('TransactionsService', () => {
     price: new Prisma.Decimal('190'),
     amount: new Prisma.Decimal('570'),
     fee: new Prisma.Decimal('1'),
+    realizedPnL: null,
     createdAt: new Date(),
     stock: {
       id: 'stock-1',
@@ -58,6 +59,7 @@ describe('TransactionsService', () => {
       price: '190.00',
       amount: '570.00',
       fee: '1.00',
+      realizedPnL: null, // a BUY locks in nothing
     });
     expect(page.items[0]).not.toHaveProperty('userId');
   });

@@ -151,8 +151,12 @@ model Transaction {
   // price * quantity, before the fee
   amount    Decimal         @db.Decimal(18, 2)
   // Commission. Cash moved: amount + fee on a BUY, amount - fee on a SELL
-  fee       Decimal         @default(0) @db.Decimal(18, 2)
-  createdAt DateTime        @default(now()) @map("created_at")
+  fee         Decimal         @default(0) @db.Decimal(18, 2)
+  // SELL only (null on a BUY): the profit this sale locked in,
+  // (price - averagePrice at the time) * quantity - fee. Recorded when the
+  // sale executes: later the average price is gone (or has changed).
+  realizedPnL Decimal?        @map("realized_pnl") @db.Decimal(18, 2)
+  createdAt   DateTime        @default(now()) @map("created_at")
 
   user  User  @relation(fields: [userId], references: [id])
   order Order @relation(fields: [orderId], references: [id])

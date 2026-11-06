@@ -170,6 +170,8 @@ describe('OrdersService', () => {
         type: 'BUY',
         quantity: 10,
         amount: D('1900'),
+        // A purchase locks in no profit or loss
+        realizedPnL: null,
       });
     });
 
@@ -263,6 +265,26 @@ describe('OrdersService', () => {
       ).toBe('760.00');
       // Only the quantity changes: selling never touches averagePrice
       expect(firstArg(tx.position.update).data).toEqual({ quantity: 6 });
+    });
+
+    it('records the realized P&L of the sale against the average price', async () => {
+      givenPosition(10, '150');
+
+      await sell(4);
+
+      // (190 - 150) * 4 shares, no fee in these tests
+      const { realizedPnL } = firstArg(tx.transaction.create).data;
+      expect(realizedPnL?.toFixed(2)).toBe('160.00');
+    });
+
+    it('records a loss as a negative realized P&L', async () => {
+      givenPosition(2, '200.5');
+
+      await sell(2);
+
+      // (190 - 200.5) * 2
+      const { realizedPnL } = firstArg(tx.transaction.create).data;
+      expect(realizedPnL?.toFixed(2)).toBe('-21.00');
     });
 
     it('deletes the position when every share is sold', async () => {
@@ -749,6 +771,10 @@ describe('OrdersService', () => {
       expect(
         firstArg(tx.wallet.update).data.cashBalance.increment.toFixed(2),
       ).toBe('1898.00');
+      // The sale's own commission comes off its profit: (189.90 - 150) * 10 - 1
+      expect(firstArg(tx.transaction.create).data.realizedPnL?.toFixed(2)).toBe(
+        '398.00',
+      );
     });
 
     it('counts the commission in the cash check', async () => {

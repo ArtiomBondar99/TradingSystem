@@ -22,6 +22,13 @@ export interface MarketDataProvider {
   ): Promise<Candle[]>;
 
   getQuote(symbol: string): Promise<Quote>;
+
+  /**
+   * Many quotes at once, for the price sync. A real API has a request limit
+   * (Alpaca free: 200/min), so 25 stocks every few seconds must be ONE request.
+   * Symbols the provider doesn't know are left out of the result.
+   */
+  getQuotes(symbols: readonly string[]): Promise<Quote[]>;
 }
 
 // Thrown by a provider when the upstream API fails (network, 5xx, rate limit)

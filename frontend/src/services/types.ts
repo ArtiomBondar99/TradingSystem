@@ -42,13 +42,20 @@ export type Position = {
   marketValue: string;
   unrealizedPnL: string;
   unrealizedPnLPercent: string;
+  // Share of the whole portfolio (cash included), e.g. "12.34"
+  allocationPercent: string;
 };
 
 export type Portfolio = {
   cashBalance: string;
+  // Cash's share of the whole portfolio
+  cashPercent: string;
   positionsValue: string;
   totalValue: string;
+  // Paper profit of the positions still held
   unrealizedPnL: string;
+  // Profit already locked in by sales, after their fees
+  realizedPnL: string;
   positions: Position[];
 };
 

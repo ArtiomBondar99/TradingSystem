@@ -95,6 +95,11 @@ export class SimulatedMarketDataProvider implements MarketDataProvider {
     });
   }
 
+  // No request limit here: generated prices cost nothing
+  getQuotes(symbols: readonly string[]): Promise<Quote[]> {
+    return Promise.all(symbols.map((symbol) => this.getQuote(symbol)));
+  }
+
   private intradayCandles(
     symbol: string,
     minutes: number,

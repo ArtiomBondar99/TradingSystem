@@ -19,7 +19,7 @@ describe('MarketPriceSyncService', () => {
     updatePrice: jest.fn<StocksService['updatePrice']>(),
   };
   const marketData = {
-    getFreshQuote: jest.fn<(symbol: string) => Promise<Quote>>(),
+    getFreshQuotes: jest.fn<(symbols: readonly string[]) => Promise<Quote[]>>(),
   };
   const config = { getOrThrow: jest.fn(() => 0) };
 
@@ -61,11 +61,10 @@ describe('MarketPriceSyncService', () => {
       stock('AAPL', '190.00'),
       stock('MSFT', '420.00'),
     ]);
-    marketData.getFreshQuote.mockImplementation((symbol) =>
-      Promise.resolve(
-        symbol === 'AAPL' ? quote('AAPL', 191.5) : quote('MSFT', 420),
-      ),
-    );
+    marketData.getFreshQuotes.mockResolvedValue([
+      quote('AAPL', 191.5),
+      quote('MSFT', 420),
+    ]);
 
     const updated = await service.syncPrices();
 
@@ -77,6 +76,42 @@ describe('MarketPriceSyncService', () => {
     );
   });
 
+  it('asks the provider for all stocks in ONE call (request limits)', async () => {
+    stocksService.findAll.mockResolvedValue([
+      stock('AAPL', '190.00'),
+      stock('MSFT', '420.00'),
+      stock('TSLA', '250.00'),
+    ]);
+    marketData.getFreshQuotes.mockResolvedValue([]);
+
+    await service.syncPrices();
+
+    expect(marketData.getFreshQuotes).toHaveBeenCalledTimes(1);
+    expect(marketData.getFreshQuotes).toHaveBeenCalledWith([
+      'AAPL',
+      'MSFT',
+      'TSLA',
+    ]);
+  });
+
+  it('keeps the last price of a stock the provider does not know', async () => {
+    stocksService.findAll.mockResolvedValue([
+      stock('AAPL', '190.00'),
+      stock('ZZZZ', '50.00'),
+    ]);
+    // ZZZZ is missing from the answer
+    marketData.getFreshQuotes.mockResolvedValue([quote('AAPL', 191.5)]);
+
+    const updated = await service.syncPrices();
+
+    expect(updated).toBe(1);
+    expect(stocksService.updatePrice).not.toHaveBeenCalledWith(
+      'ZZZZ',
+      expect.anything(),
+    );
+    expect(priceFeed.latestFor('ZZZZ')).toBeUndefined();
+  });
+
   it('does nothing when the interval is 0 (the test default)', () => {
     service.onApplicationBootstrap();
 
@@ -85,7 +120,7 @@ describe('MarketPriceSyncService', () => {
 
   it('publishes a changed price only after writing it to the database', async () => {
     stocksService.findAll.mockResolvedValue([stock('AAPL', '190.00')]);
-    marketData.getFreshQuote.mockResolvedValue(quote('AAPL', 191.5));
+    marketData.getFreshQuotes.mockResolvedValue([quote('AAPL', 191.5)]);
     const published: string[] = [];
     // At the moment of publishing, had the database write already happened?
     let writtenFirst = false;
@@ -103,7 +138,7 @@ describe('MarketPriceSyncService', () => {
 
   it('publishes an unchanged price once, as the starting quote', async () => {
     stocksService.findAll.mockResolvedValue([stock('MSFT', '420.00')]);
-    marketData.getFreshQuote.mockResolvedValue(quote('MSFT', 420));
+    marketData.getFreshQuotes.mockResolvedValue([quote('MSFT', 420)]);
     const published: string[] = [];
     priceFeed.quotes$.subscribe((q) => published.push(q.symbol));
 
