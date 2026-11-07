@@ -5,6 +5,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { GuestRoute } from './components/layout/GuestRoute';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import Dashboard from './pages/Dashboard';
+import History from './pages/History';
 import Login from './pages/Login';
 import Portfolio from './pages/Portfolio';
 import Register from './pages/Register';
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
             }),
           },
           { path: '/portfolio', element: <Portfolio /> },
+          { path: '/history', element: <History /> },
         ],
       },
     ],

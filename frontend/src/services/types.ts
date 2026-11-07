@@ -88,6 +88,42 @@ export type Order = {
 
 export type OrderPage = { items: Order[]; nextCursor: string | null };
 
+// One executed trade (the audit trail): every FILLED order has exactly one
+export type Transaction = {
+  id: string;
+  orderId: string;
+  symbol: string;
+  type: OrderSide;
+  quantity: number;
+  price: string;
+  // price * quantity, before the fee
+  amount: string;
+  fee: string;
+  // SELL: profit locked in by this sale, after its fee. BUY: null.
+  realizedPnL: string | null;
+  createdAt: string;
+};
+
+export type TransactionPage = {
+  items: Transaction[];
+  nextCursor: string | null;
+};
+
+export type WatchlistItem = {
+  symbol: string;
+  name: string;
+  currentPrice: string;
+  // Today's move; null until the server has a live quote for it
+  change: number | null;
+  changePercent: number | null;
+  addedAt: string;
+};
+
+export type TransactionFilters = {
+  type?: OrderSide;
+  symbol?: string;
+};
+
 // No price for a MARKET order: the server decides it. The client never
 // tells the server what something costs.
 export type PlaceOrderRequest = {

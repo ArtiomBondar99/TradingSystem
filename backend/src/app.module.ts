@@ -28,6 +28,7 @@ import { DatabaseModule } from './database/database.module.js';
 import { CacheModule } from './cache/cache.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { WatchlistModule } from './watchlist/watchlist.module.js';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     IndicatorsModule,
     RealtimeModule,
     NotificationsModule,
+    WatchlistModule,
   ],
   providers: [
     // Registered here (not with app.useGlobalFilters in main.ts) so it also

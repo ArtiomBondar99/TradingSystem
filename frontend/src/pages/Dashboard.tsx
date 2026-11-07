@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { PositionsTable } from '../components/portfolio/PositionsTable';
 import { MarketList } from '../components/trading/MarketList';
+import { Watchlist } from '../components/watchlist/Watchlist';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Panel } from '../components/ui/Panel';
 import { StatCard } from '../components/ui/StatCard';
@@ -53,7 +54,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      {/* items-start: each column only as tall as its own content */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <Panel
           title="Open positions"
           className="lg:col-span-2"
@@ -71,14 +73,20 @@ export default function Dashboard() {
           )}
         </Panel>
 
-        <Panel title="Markets">
-          {stocks.isError && (
-            <div className="p-4">
-              <ErrorMessage error={stocks.error} />
-            </div>
-          )}
-          {stocks.data && <MarketList stocks={stocks.data} />}
-        </Panel>
+        <div className="flex flex-col gap-4">
+          <Panel title="Watchlist">
+            <Watchlist />
+          </Panel>
+
+          <Panel title="Markets">
+            {stocks.isError && (
+              <div className="p-4">
+                <ErrorMessage error={stocks.error} />
+              </div>
+            )}
+            {stocks.data && <MarketList stocks={stocks.data} />}
+          </Panel>
+        </div>
       </div>
     </div>
   );

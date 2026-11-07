@@ -19,10 +19,11 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  wallet       Wallet?
-  orders       Order[]
-  positions    Position[]
-  transactions Transaction[]
+  wallet         Wallet?
+  orders         Order[]
+  positions      Position[]
+  transactions   Transaction[]
+  watchlistItems WatchlistItem[]
 
   @@map("users")
 }
@@ -48,9 +49,10 @@ model Stock {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  orders       Order[]
-  positions    Position[]
-  transactions Transaction[]
+  orders         Order[]
+  positions      Position[]
+  transactions   Transaction[]
+  watchlistItems WatchlistItem[]
 
   @@map("stocks")
 }
@@ -164,6 +166,24 @@ model Transaction {
 
   @@index([userId, createdAt])
   @@map("transactions")
+}
+
+// A stock the user follows. Nothing else: the price comes from stocks /
+// the live feed, never copied here (a copy would go stale).
+model WatchlistItem {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  stockId   String   @map("stock_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Deleting a user or a stock takes its watchlist rows with it
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock Stock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  // A stock is on a list once. Also the index for "this user's list"
+  // (user_id is its first column).
+  @@unique([userId, stockId])
+  @@map("watchlist_items")
 }
 
 // Transactional outbox: an event is written in the SAME database transaction as

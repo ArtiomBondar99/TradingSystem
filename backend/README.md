@@ -66,8 +66,11 @@ Full request/response schemas are in Swagger at `/docs`.
 | GET | `/stocks/:symbol` | – | One stock, e.g. `/stocks/AAPL` |
 | POST | `/orders` | Bearer | Buy or sell at market price. Optional `Idempotency-Key` header |
 | GET | `/orders` | Bearer | Order history (filled and rejected), newest first, cursor-paginated. Optional `?status=REJECTED` |
-| GET | `/portfolio` | Bearer | Holdings, market value and unrealized profit/loss |
-| GET | `/transactions` | Bearer | Trade history, newest first, cursor-paginated (`?limit=&cursor=`) |
+| GET | `/portfolio` | Bearer | Holdings, market value, unrealized and realized profit/loss, allocation % |
+| GET | `/transactions` | Bearer | Trade history with each sale's realized P&L, newest first, cursor-paginated. Optional `?type=SELL&symbol=AAPL` |
+| GET | `/watchlist` | Bearer | Followed stocks with price and today's change |
+| PUT | `/watchlist/:symbol` | Bearer | Follow a stock (idempotent, max 50) |
+| DELETE | `/watchlist/:symbol` | Bearer | Unfollow a stock (idempotent) |
 
 ## API testing
 

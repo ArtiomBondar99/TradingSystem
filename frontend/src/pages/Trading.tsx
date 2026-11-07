@@ -11,6 +11,7 @@ import { MarketList } from '../components/trading/MarketList';
 import { OrderPanel } from '../components/trading/OrderPanel';
 import { OrdersList } from '../components/trading/OrdersList';
 import { QuoteHeader } from '../components/trading/QuoteHeader';
+import { Watchlist } from '../components/watchlist/Watchlist';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Panel } from '../components/ui/Panel';
 import {
@@ -114,9 +115,14 @@ function TradingTerminal({ symbol }: { symbol: string }) {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr_300px]">
-      <Panel title="Markets" className="order-2 lg:order-1">
-        {stocks.data && <MarketList stocks={stocks.data} />}
-      </Panel>
+      <div className="order-2 flex flex-col gap-4 lg:order-1">
+        <Panel title="Watchlist">
+          <Watchlist />
+        </Panel>
+        <Panel title="Markets">
+          {stocks.data && <MarketList stocks={stocks.data} />}
+        </Panel>
+      </div>
 
       <section className="order-1 flex min-w-0 flex-col rounded-lg border border-line bg-panel lg:order-2">
         <QuoteHeader symbol={symbol} name={name} quote={quote.data} />

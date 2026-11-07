@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { CursorPaginationQueryDto } from '../common/dto/cursor-pagination-query.dto.js';
 import { toCursorPage } from '../common/pagination.js';
+import type { ListTransactionsQueryDto } from './dto/list-transactions-query.dto.js';
 import {
   TransactionPageDto,
   TransactionResponseDto,
@@ -15,13 +15,14 @@ export class TransactionsService {
 
   async getMyTransactions(
     userId: string,
-    query: CursorPaginationQueryDto,
+    query: ListTransactionsQueryDto,
   ): Promise<TransactionPageDto> {
     // Ask for one extra row: if it exists, there is a next page
     const rows = await this.transactionsRepository.findPageByUserId(
       userId,
       query.limit + 1,
       query.cursor,
+      { type: query.type, symbol: query.symbol },
     );
 
     const page = toCursorPage(rows, query.limit);

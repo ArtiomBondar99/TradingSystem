@@ -73,6 +73,24 @@ describe('TransactionsService', () => {
       'user-1',
       3,
       'c1',
+      { type: undefined, symbol: undefined },
+    );
+  });
+
+  it('passes the type and symbol filters to the repository', async () => {
+    transactionsRepository.findPageByUserId.mockResolvedValue([]);
+
+    await service.getMyTransactions('user-1', {
+      limit: 20,
+      type: 'SELL',
+      symbol: 'AAPL',
+    });
+
+    expect(transactionsRepository.findPageByUserId).toHaveBeenCalledWith(
+      'user-1',
+      21,
+      undefined,
+      { type: 'SELL', symbol: 'AAPL' },
     );
   });
 

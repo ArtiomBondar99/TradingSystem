@@ -3,6 +3,7 @@ import { useNow } from '../../hooks/useNow';
 import { useIsLive, useRealtimeStore } from '../../hooks/useRealtimeStore';
 import type { Quote } from '../../services/types';
 import { DataSourceBadge } from '../charts/DataSourceBadge';
+import { WatchlistStar } from '../watchlist/WatchlistStar';
 import { MarketStatusBadge } from './MarketStatusBadge';
 
 type Props = {
@@ -47,9 +48,12 @@ export function QuoteHeader({ symbol, name, quote }: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
-      <div className="min-w-0">
-        <h1 className="text-lg leading-tight font-semibold">{symbol}</h1>
-        {name && <p className="truncate text-xs text-muted">{name}</p>}
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0">
+          <h1 className="text-lg leading-tight font-semibold">{symbol}</h1>
+          {name && <p className="truncate text-xs text-muted">{name}</p>}
+        </div>
+        <WatchlistStar symbol={symbol} />
       </div>
 
       {quote && (

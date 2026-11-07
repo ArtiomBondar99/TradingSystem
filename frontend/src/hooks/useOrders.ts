@@ -23,6 +23,7 @@ function useRefreshAfterTrade() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['orders'] }),
         queryClient.invalidateQueries({ queryKey: ['portfolio'] }),
+        queryClient.invalidateQueries({ queryKey: ['transactions'] }),
       ]),
     [queryClient],
   );

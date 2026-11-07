@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/trading', label: 'Trading', end: false },
   { to: '/portfolio', label: 'Portfolio', end: false },
+  { to: '/history', label: 'History', end: false },
 ];
 
 // The frame around every logged-in page: top bar + the current page below

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { realtime, type LiveQuote } from '../services/realtime';
-import type { Quote, Stock } from '../services/types';
+import type { Quote, Stock, WatchlistItem } from '../services/types';
 import { useAuthStore } from './useAuthStore';
 import { useRealtimeStore } from './useRealtimeStore';
 
@@ -39,6 +39,19 @@ export function useRealtimeConnection() {
             : stock,
         ),
       );
+      // The watchlist: price and today's change
+      queryClient.setQueryData<WatchlistItem[]>(['watchlist'], (items) =>
+        items?.map((item) =>
+          item.symbol === quote.symbol
+            ? {
+                ...item,
+                currentPrice: quote.price.toFixed(2),
+                change: quote.change,
+                changePercent: quote.changePercent,
+              }
+            : item,
+        ),
+      );
     });
 
     // One of my orders filled (e.g. a limit order, in the background):
@@ -47,6 +60,7 @@ export function useRealtimeConnection() {
       addFill(fill);
       void queryClient.invalidateQueries({ queryKey: ['orders'] });
       void queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] });
     });
 
     realtime.start(token);

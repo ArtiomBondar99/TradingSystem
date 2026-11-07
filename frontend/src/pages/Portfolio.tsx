@@ -6,7 +6,6 @@ import { StatCard } from '../components/ui/StatCard';
 import { usePortfolio } from '../hooks/usePortfolio';
 import { formatMoney, formatSignedMoney, pnlColor } from '../lib/format';
 
-// Transaction history arrives in step 5.3
 export default function Portfolio() {
   const portfolio = usePortfolio();
 

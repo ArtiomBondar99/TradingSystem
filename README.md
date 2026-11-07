@@ -1,5 +1,7 @@
 # TradingSystem: Paper Trading Platform
 
+[![CI](https://github.com/ArtiomBondar99/TradingSystem/actions/workflows/ci.yml/badge.svg)](https://github.com/ArtiomBondar99/TradingSystem/actions/workflows/ci.yml)
+
 A stock trading simulator: analyze stocks, buy and sell with **virtual money only**, and track a portfolio. Every user starts with $100,000. No real-money trade is ever executed.
 
 | Folder | What | Stack |
@@ -51,6 +53,8 @@ npm run test:e2e           # end-to-end, against real PostgreSQL, Redis and Rabb
 ```
 
 The e2e tests use their own database (`<POSTGRES_DB>_test`) and Redis keyspace (`/1`), so they can run while `npm run dev` is running.
+
+**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push to `main` and every pull request: backend lint, type check, unit tests, e2e tests against real PostgreSQL/Redis/RabbitMQ containers, and build; frontend lint, type check and build; and a build of the backend Docker image.
 
 ## Market data
 
