@@ -52,9 +52,17 @@ npm run test:e2e:prepare   # once, and after new migrations: creates/updates the
 npm run test:e2e           # end-to-end, against real PostgreSQL, Redis and RabbitMQ (docker compose must be up)
 ```
 
-The e2e tests use their own database (`<POSTGRES_DB>_test`) and Redis keyspace (`/1`), so they can run while `npm run dev` is running.
+Frontend (Vitest + React Testing Library, in jsdom: no browser or backend needed):
 
-**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push to `main` and every pull request: backend lint, type check, unit tests, e2e tests against real PostgreSQL/Redis/RabbitMQ containers, and build; frontend lint, type check and build; and a build of the backend Docker image.
+```bash
+cd frontend
+npm test                   # once
+npm run test:watch         # re-runs on save
+```
+
+The backend e2e tests use their own database (`<POSTGRES_DB>_test`) and Redis keyspace (`/1`), so they can run while `npm run dev` is running.
+
+**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push to `main` and every pull request: backend lint, type check, unit tests, e2e tests against real PostgreSQL/Redis/RabbitMQ containers, and build; frontend lint, tests, type check and build; and a build of the backend Docker image.
 
 ## Market data
 

@@ -99,7 +99,7 @@ jobs:
         run: npm run build
 
   frontend:
-    name: Frontend (lint, types, build)
+    name: Frontend (lint, tests, types, build)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -119,6 +119,10 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Vitest + React Testing Library, in jsdom (no browser, no backend)
+      - name: Tests
+        run: npm test
 
       # tsc -b (type check) && vite build
       - name: Type check and build
