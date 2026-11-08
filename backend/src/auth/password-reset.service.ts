@@ -18,6 +18,17 @@ export const PASSWORD_RESET_COOLDOWN_MS = 60_000;
 export const INVALID_RESET_LINK =
   'This reset link is invalid or has expired. Request a new one.';
 
+// For the log. error.message alone can be empty: a refused connection to
+// "localhost" is an AggregateError (IPv6 and IPv4 both refused) with
+// message "" and the reason only in code (ECONNREFUSED)
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    const { code } = error as NodeJS.ErrnoException;
+    return [code, error.message].filter(Boolean).join(' ') || error.name;
+  }
+  return String(error);
+}
+
 /**
  * SHA-256, not argon2 like passwords: the token is 32 random bytes, so there
  * is nothing to guess, and a fast hash can be looked up by its value.
@@ -44,10 +55,10 @@ export class PasswordResetService {
    * unknown ones, and that difference alone would tell who has an account.
    */
   requestReset(email: string): void {
-    this.sendResetLink(email).catch((error: Error) =>
+    this.sendResetLink(email).catch((error: unknown) =>
       this.logger.error({
         action: 'password_reset.request_failed',
-        msg: `Could not send a reset link: ${error.message}`,
+        msg: `Could not send a reset link: ${describeError(error)}`,
       }),
     );
   }
@@ -131,11 +142,11 @@ export class PasswordResetService {
       .then((user) =>
         this.mail.send(passwordChangedMail(user.email, user.firstName)),
       )
-      .catch((error: Error) =>
+      .catch((error: unknown) =>
         this.logger.error({
           action: 'password_reset.notice_failed',
           userId,
-          msg: `Could not send the password changed notice: ${error.message}`,
+          msg: `Could not send the password changed notice: ${describeError(error)}`,
         }),
       );
   }

@@ -132,14 +132,20 @@ describe('PasswordResetService', () => {
       const errorLog = jest
         .spyOn(Logger.prototype, 'error')
         .mockImplementation(() => undefined);
-      mail.send.mockRejectedValue(new Error('connect ECONNREFUSED'));
+      // What Node really throws when nothing listens on localhost: no
+      // message at all, the reason is only in the code
+      const refused = Object.assign(new AggregateError([], ''), {
+        code: 'ECONNREFUSED',
+      });
+      mail.send.mockRejectedValue(refused);
 
       expect(() => service.requestReset('ada@example.com')).not.toThrow();
 
       await new Promise((resolve) => setImmediate(resolve));
-      expect(errorLog).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'password_reset.request_failed' }),
-      );
+      expect(errorLog).toHaveBeenCalledWith({
+        action: 'password_reset.request_failed',
+        msg: 'Could not send a reset link: ECONNREFUSED',
+      });
     });
   });
 
