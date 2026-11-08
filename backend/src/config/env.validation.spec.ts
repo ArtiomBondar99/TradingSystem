@@ -60,6 +60,30 @@ describe('validateEnv', () => {
     });
   });
 
+  describe('SMTP_URL and FRONTEND_URL', () => {
+    it('are optional in development (Mailpit, Vite on localhost)', () => {
+      expect(() =>
+        validateEnv({ ...valid, NODE_ENV: 'development' }),
+      ).not.toThrow();
+    });
+
+    it('are required in production', () => {
+      expect(() => validateEnv({ ...valid, NODE_ENV: 'production' })).toThrow(
+        /SMTP_URL is required when NODE_ENV=production\n- FRONTEND_URL is required/,
+      );
+    });
+
+    it('accept production with both set', () => {
+      const env = {
+        ...valid,
+        NODE_ENV: 'production',
+        SMTP_URL: 'smtps://user:pass@smtp.example.com:465',
+        FRONTEND_URL: 'https://trade.example.com',
+      };
+      expect(validateEnv(env)).toBe(env);
+    });
+  });
+
   it('lists every problem at once', () => {
     expect(() => validateEnv({})).toThrow(
       /DATABASE_URL is required\n- JWT_SECRET is required/,

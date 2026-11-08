@@ -23,7 +23,7 @@ Requires Node.js 24 and Docker. Configuration lives in one `.env` at the repo ro
 cp .env.example .env        # at the repo root, then fill in the values
 cd backend
 npm install
-npm run dev                 # starts PostgreSQL, Redis and RabbitMQ in Docker + the API in watch mode
+npm run dev                 # starts PostgreSQL, Redis, RabbitMQ and Mailpit in Docker + the API in watch mode
 npx prisma migrate deploy   # first run only: create the tables
 npx prisma db seed          # first run only: add the starting stocks (safe to re-run)
 ```
@@ -31,6 +31,7 @@ npx prisma db seed          # first run only: add the starting stocks (safe to r
 - API: `http://localhost:3000`
 - **Interactive API docs (Swagger): `http://localhost:3000/docs`**
 - RabbitMQ management UI: `http://localhost:15672`
+- Mailpit (catches every email the API sends, e.g. password reset links): `http://localhost:8025`
 
 ### Everything in Docker (production-like)
 
@@ -44,7 +45,7 @@ This builds the API image, runs a one-shot `migrate` container (migrations + see
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Start PostgreSQL, Redis, RabbitMQ + the API in watch mode |
+| `npm run dev` | Start PostgreSQL, Redis, RabbitMQ, Mailpit + the API in watch mode |
 | `npm run start:dev` | Start the API in watch mode (infrastructure must already be running) |
 | `npm run build` | Compile to `dist/` |
 | `npm run test` | Unit tests |
@@ -60,6 +61,8 @@ Full request/response schemas are in Swagger at `/docs`.
 | GET | `/health` | – | Service and database health check |
 | POST | `/auth/register` | – | Create an account (starts with $100,000) |
 | POST | `/auth/login` | – | Get a JWT access token |
+| POST | `/auth/forgot-password` | – | Email a password reset link (valid 30 min, single use). Always 202, whether the email is registered or not |
+| POST | `/auth/reset-password` | – | Set a new password with the link's token. 204, or 400 if the link is invalid, used or expired |
 | GET | `/users/me` | Bearer | Current user's profile |
 | GET | `/wallet` | Bearer | Current user's cash balance |
 | GET | `/stocks` | – | All tradable stocks with current prices (cached) |

@@ -38,6 +38,17 @@ export function validateEnv(
     }
   }
 
+  // The defaults (Mailpit on localhost:1025, the app on localhost:5173) are
+  // for a laptop. In production they'd mean no password reset mails, or
+  // links to localhost in them, so both must be set.
+  if (env.NODE_ENV === 'production') {
+    for (const name of ['SMTP_URL', 'FRONTEND_URL']) {
+      if (typeof env[name] !== 'string' || env[name] === '') {
+        errors.push(`${name} is required when NODE_ENV=production`);
+      }
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(`Invalid environment:\n- ${errors.join('\n- ')}`);
   }

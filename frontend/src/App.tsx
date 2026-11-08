@@ -5,10 +5,12 @@ import { AppLayout } from './components/layout/AppLayout';
 import { GuestRoute } from './components/layout/GuestRoute';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import Dashboard from './pages/Dashboard';
+import ForgotPassword from './pages/ForgotPassword';
 import History from './pages/History';
 import Login from './pages/Login';
 import Portfolio from './pages/Portfolio';
 import Register from './pages/Register';
+import ResetPassword from './pages/ResetPassword';
 import { queryClient } from './services/queryClient';
 
 // Every URL of the app in one place. Layout routes (no path) wrap their
@@ -20,8 +22,12 @@ const router = createBrowserRouter([
     children: [
       { path: '/login', element: <Login /> },
       { path: '/register', element: <Register /> },
+      { path: '/forgot-password', element: <ForgotPassword /> },
     ],
   },
+  // Not a guest route: the emailed link must open even in a browser that
+  // is still logged in (a successful reset logs it out)
+  { path: '/reset-password', element: <ResetPassword /> },
   {
     element: <ProtectedRoute />,
     children: [

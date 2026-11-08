@@ -22,6 +22,11 @@ export default () => {
     app: {
       environment: process.env.NODE_ENV ?? 'development',
       logLevel: process.env.LOG_LEVEL ?? 'info',
+      // Where the browser app lives: links in emails point here. Dev
+      // default: the Vite dev server. Required in production.
+      frontendUrl: (
+        process.env.FRONTEND_URL ?? 'http://localhost:5173'
+      ).replace(/\/+$/, ''),
     },
     rateLimit: {
       // On everywhere except tests, where one runner creates dozens of users
@@ -75,6 +80,14 @@ export default () => {
           (process.env.NODE_ENV === 'test' ? '0' : '2000'),
         10,
       ),
+    },
+    mail: {
+      // Dev default: Mailpit (docker-compose.yml) catches every message and
+      // shows it at http://localhost:8025; nothing reaches a real inbox.
+      // Required in production (env.validation.ts).
+      smtpUrl: process.env.SMTP_URL ?? 'smtp://localhost:1025',
+      from:
+        process.env.MAIL_FROM ?? 'Paper Trading <no-reply@paper-trading.local>',
     },
     cors: {
       // Comma-separated browser origins allowed to call the API, e.g.

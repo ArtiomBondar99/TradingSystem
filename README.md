@@ -8,7 +8,7 @@ A stock trading simulator: analyze stocks, buy and sell with **virtual money onl
 |---|---|---|
 | [`backend/`](backend/README.md) | REST API, trading engine, wallet, portfolio | NestJS, TypeScript, PostgreSQL (Prisma), Redis, RabbitMQ |
 | [`frontend/`](frontend/README.md) | Trading terminal UI (work in progress) | React, TypeScript, Vite |
-| `docker-compose.yml` | PostgreSQL, Redis, RabbitMQ (+ the API with `--profile app`) | Docker |
+| `docker-compose.yml` | PostgreSQL, Redis, RabbitMQ, Mailpit (+ the API with `--profile app`) | Docker |
 
 The two apps are independent npm projects, each with its own `package.json` and lockfile.
 
@@ -36,6 +36,7 @@ In development the browser only talks to the Vite dev server, which forwards `/a
 
 - API docs (Swagger): http://localhost:3000/docs
 - RabbitMQ UI: http://localhost:15672
+- Mailpit, the development inbox (password reset emails land here, never in a real mailbox): http://localhost:8025
 
 ### Backend in Docker (production-like)
 

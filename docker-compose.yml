@@ -51,6 +51,21 @@ services:
       timeout: 10s
       retries: 5
 
+  # Fake mail server for development: the API sends to it over real SMTP, it
+  # keeps every message and shows it at http://localhost:8025. Nothing ever
+  # reaches a real inbox. No volume: the inbox is throwaway.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: paper-trading-mailpit
+    ports:
+      - "${SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # One-shot job: applies pending migrations and seeds the stocks, then exits.
   # The API waits for it to finish successfully before starting.
   migrate:
@@ -83,6 +98,9 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-trading}:${RABBITMQ_PASSWORD:-change_me}@rabbitmq:5672
+      SMTP_URL: smtp://mailpit:1025
+      # Reset links in emails open the app here (the Vite dev server)
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     ports:
       - "${PORT}:3000"
     depends_on:
@@ -93,6 +111,8 @@ services:
       redis:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
 
 volumes:

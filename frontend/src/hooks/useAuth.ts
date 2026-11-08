@@ -1,5 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { getMe, login, register } from '../services/auth.service';
+import {
+  forgotPassword,
+  getMe,
+  login,
+  register,
+  resetPassword,
+} from '../services/auth.service';
 import type { RegisterRequest } from '../services/types';
 import { useAuthStore } from './useAuthStore';
 
@@ -22,6 +28,26 @@ export function useLogin() {
   return useMutation({
     mutationFn: login,
     onSuccess: (response) => setToken(response.accessToken),
+  });
+}
+
+export function useForgotPassword() {
+  // A wrapper, not mutationFn: forgotPassword. TanStack passes a second
+  // argument (its context) that the API function shouldn't receive.
+  return useMutation({
+    mutationFn: (email: string) => forgotPassword(email),
+  });
+}
+
+export function useResetPassword() {
+  const logout = useAuthStore((state) => state.logout);
+
+  return useMutation({
+    mutationFn: ({ token, password }: { token: string; password: string }) =>
+      resetPassword(token, password),
+    // If this browser was logged in, that session belonged to the old
+    // password: end it, so the next login uses the new one
+    onSuccess: () => logout(),
   });
 }
 

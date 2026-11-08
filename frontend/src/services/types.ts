@@ -15,6 +15,10 @@ export type LoginRequest = {
   password: string;
 };
 
+// Router state for /login: set by ResetPassword after a successful reset,
+// so the login page can say "Password changed"
+export type LoginLocationState = { passwordReset?: boolean } | null;
+
 export type RegisterRequest = LoginRequest & {
   firstName: string;
   lastName: string;
